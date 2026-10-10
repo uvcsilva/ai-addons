@@ -19,20 +19,38 @@ CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
 CLAUDE_JSON="${CLAUDE_CONFIG_DIR:-$HOME_DIR}/.claude.json"
 CODEX_DIR="${CODEX_HOME:-$HOME_DIR/.codex}"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
+CLIENTS="claude,codex"
+PROJECT_DIR=""
+CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
+OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
+OC_CONFIG_FILE=""
+OPENCODE_MAJOR=""
+COPILOT_DIR="${COPILOT_HOME:-$HOME_DIR/.copilot}"
+VSCODE_USER_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/Code/User"
+selected() { [[ ",$CLIENTS," == *",$1,"* ]]; }
+
 
 usage() {
   cat <<EOF
-Uso: $SCRIPT_NAME [--dry-run | --help]
+Uso: $SCRIPT_NAME [opcoes]
 
 Instala e configura somente Engram no escopo do usuario do Ubuntu.
-Configura Engram como unica memoria persistente e desativa as memorias nativas dos dois agentes.
+Integra somente os clientes selecionados. Consulte a matriz de compatibilidade no README.
 
   --dry-run  Mostra o plano, sem rede, arquivos, logs ou alteracoes.
   --help     Mostra esta ajuda.
+  --clients LISTA  claude,codex,cline,opencode,copilot,vscode ou all.
+                   Padrao: claude,codex. copilot = CLI; vscode = Copilot VS Code.
+  --cline-config ARQUIVO  MCP do Cline CLI ou extensao (caminho absoluto).
+  --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
+  --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
+  --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
+OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
+RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
-Pre-requisitos: curl, git, jq, python3, sha256sum, flock, claude, codex.
-Nao usa sudo. Requer os dois CLIs ja instalados e autenticados.
-Baixa a release estavel mais recente com SHA-256; usa os setups oficiais dos dois agentes.
+Pre-requisitos: curl, git, jq, python3, sha256sum, flock.
+Nao usa sudo. Requer apenas os clientes selecionados; veja limites no README.
+Baixa Engram estavel com SHA-256; setup nativo apenas em Claude/Codex selecionados.
 Backup e log privados: \${XDG_STATE_HOME:-~/.local/state}/six-addons-installer.
 Os seis scripts compartilham um bloqueio; execute um de cada vez.
 Conflitos existentes sao informados, sem sobrescrever entradas MCP diferentes.
@@ -63,20 +81,49 @@ trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
 DRY_RUN=0
-for arg in "$@"; do
-  case "$arg" in
+while (($#)); do
+  case "$1" in
     --help|-h) usage; exit 0 ;;
-    --dry-run) DRY_RUN=1 ;;
-    *) printf 'Opcao desconhecida: %s\n\n' "$arg" >&2; usage >&2; exit 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir)
+      (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
+      case "$1" in
+        --clients) CLIENTS="$2" ;;
+        --cline-config) CLINE_CONFIG="$2" ;;
+        --vscode-user-dir) VSCODE_USER_DIR="$2" ;;
+        --opencode-major) OPENCODE_MAJOR="$2" ;;
+        --project-dir) PROJECT_DIR="$2" ;;
+      esac
+      shift 2 ;;
+    *) printf 'Opcao desconhecida: %s\n' "$1" >&2; exit 2 ;;
   esac
+done
+[[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode'
+[[ -n "$CLIENTS" && "$CLIENTS" != ,* && "$CLIENTS" != *, && "$CLIENTS" != *,,* ]] || { printf 'Lista de clientes invalida\n' >&2; exit 2; }
+IFS=, read -r -a CLIENT_LIST <<< "$CLIENTS"
+for client in "${CLIENT_LIST[@]}"; do
+  case "$client" in
+    claude|codex|cline|opencode|copilot|vscode) ;;
+    openrouter) printf 'OpenRouter e provedor: use --clients cline,opencode e escolha OpenRouter no cliente.\n' >&2; exit 2 ;;
+    *) printf 'Cliente desconhecido: %s\n' "$client" >&2; exit 2 ;;
+  esac
+done
+case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
+for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
+  [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
 if [[ "$DRY_RUN" == 1 ]]; then
   cat <<EOF
 Simulacao de Engram: sem alteracoes e sem acesso a rede.
-  • Exigir Ubuntu, usuario sem sudo e: curl, git, jq, python3, sha256sum, flock, claude, codex.
-  • Instalar Engram verificado em ~/.local/bin.
-  • Desativar memorias nativas e executar setup claude-code e setup codex.
-  • Conferir MCPs, plugins e configuracao de memoria.
+  Clientes: $CLIENTS
+  Cline MCP: $CLINE_CONFIG
+  OpenCode: $OPENCODE_DIR (major: ${OPENCODE_MAJOR:-detectar})
+  Copilot CLI: $COPILOT_DIR
+  VS Code User: $VSCODE_USER_DIR
+  Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
+  • Exigir Ubuntu, usuario sem sudo e: curl, git, jq, python3, sha256sum, flock.
+  • Instalar Engram verificado, registrar MCPs e protocolo de memoria.
+  • Desativar memorias locais conhecidas; Copilot requer ajuste na conta GitHub.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Engram depois da instalacao.
@@ -102,13 +149,32 @@ esac
 
 export PATH="$LOCAL_BIN:$PATH"
 MISSING=()
-for cmd in curl git jq python3 sha256sum flock claude codex; do
+for cmd in curl git jq python3 sha256sum flock; do
   command -v "$cmd" >/dev/null 2>&1 || MISSING+=("$cmd")
 done
+if [[ "$ADDON" != ccusage ]]; then
+  for client in claude codex; do
+    if selected "$client"; then command -v "$client" >/dev/null 2>&1 || MISSING+=("$client"); fi
+  done
+fi
 if ((${#MISSING[@]})); then
   die "Pre-requisitos ausentes: ${MISSING[*]}. Instale pelo gerenciador oficial do Ubuntu/fornecedor e reexecute."
 fi
 
+if selected opencode && [[ "$ADDON" != ccusage ]]; then
+  [[ -z "${OPENCODE_CONFIG:-}" && -z "${OPENCODE_CONFIG_CONTENT:-}" && -z "${OPENCODE_CONFIG_DIR:-}" ]] || die 'Remova os overrides OPENCODE_CONFIG/CONTENT/DIR e execute para a configuracao global, ou adapte o destino manualmente.' 
+  if [[ -z "$OPENCODE_MAJOR" ]]; then
+    command -v opencode >/dev/null || die 'Instale OpenCode ou informe --opencode-major 1|2.'
+    opencode_version="$(opencode --version)"
+    case "$opencode_version" in 1.*|v1.*) OPENCODE_MAJOR=1 ;; 2.*|v2.*) OPENCODE_MAJOR=2 ;; *) die 'Versao OpenCode nao reconhecida: informe --opencode-major 1|2.' ;; esac
+  fi
+  [[ ! -e "$OPENCODE_DIR/opencode.json" || ! -e "$OPENCODE_DIR/opencode.jsonc" ]] || die 'Existem opencode.json e opencode.jsonc: consolide as configuracoes antes de prosseguir.'
+  OC_CONFIG_FILE="$OPENCODE_DIR/opencode.json"
+  [[ ! -e "$OPENCODE_DIR/opencode.jsonc" ]] || OC_CONFIG_FILE="$OPENCODE_DIR/opencode.jsonc"
+  printf 'OpenCode %s: %s\n' "$OPENCODE_MAJOR" "$OC_CONFIG_FILE"
+
+fi
+[[ -z "$PROJECT_DIR" || -d "$PROJECT_DIR" ]] || die 'O projeto precisa ser um diretorio existente.'
 mkdir -p "$LOCAL_BIN" "$STATE_ROOT/backups"
 chmod 700 "$STATE_ROOT" "$STATE_ROOT/backups"
 [[ ! -L "$STATE_ROOT/install.lock" ]] || die 'O arquivo de bloqueio nao pode ser link simbolico.'
@@ -129,11 +195,11 @@ chmod 700 "$TMP_WORKDIR"
 # Executar CLIs fora de repositorios evita misturar configuracao de projeto.
 cd "$TMP_WORKDIR"
 printf 'Instalador de %s — Ubuntu %s\nUsuario: %s\nLog: %s\n' "$ADDON" "${VERSION_ID:-?}" "$HOME_DIR" "$LOG_FILE"
-printf 'Claude: %s
-Codex: %s
-' "$CLAUDE_DIR" "$CODEX_DIR"
-claude --version
-codex --version
+if [[ "$ADDON" != ccusage ]]; then
+printf 'Clientes selecionados: %s\n' "$CLIENTS"
+if selected claude; then claude --version; fi
+if selected codex; then codex --version; fi
+fi
 
 backup_path() {
   local path="$1" safe destination
@@ -151,28 +217,19 @@ assert_regular_or_absent() {
   [[ ! -e "$path" || -f "$path" ]] || die "Caminho nao e arquivo regular: $path"
 }
 
-assert_regular_or_absent "$CLAUDE_SETTINGS"
-backup_path "$CLAUDE_SETTINGS"
-assert_regular_or_absent "$CLAUDE_JSON"
-backup_path "$CLAUDE_JSON"
-assert_regular_or_absent "$CODEX_CONFIG"
-backup_path "$CODEX_CONFIG"
-assert_regular_or_absent "$CLAUDE_DIR/plugins/known_marketplaces.json"
-backup_path "$CLAUDE_DIR/plugins/known_marketplaces.json"
-assert_regular_or_absent "$CLAUDE_DIR/plugins/installed_plugins.json"
-backup_path "$CLAUDE_DIR/plugins/installed_plugins.json"
-assert_regular_or_absent "$CODEX_DIR/plugins/marketplaces.json"
-backup_path "$CODEX_DIR/plugins/marketplaces.json"
-assert_regular_or_absent "$CODEX_DIR/plugins/installed_plugins.json"
-backup_path "$CODEX_DIR/plugins/installed_plugins.json"
-assert_regular_or_absent "$CODEX_DIR/hooks.json"
-backup_path "$CODEX_DIR/hooks.json"
-assert_regular_or_absent "$HOME_DIR/.agents/plugins/marketplace.json"
-backup_path "$HOME_DIR/.agents/plugins/marketplace.json"
-assert_regular_or_absent "$CODEX_DIR/engram-instructions.md"
-backup_path "$CODEX_DIR/engram-instructions.md"
-assert_regular_or_absent "$CODEX_DIR/engram-compact-prompt.md"
-backup_path "$CODEX_DIR/engram-compact-prompt.md"
+if [[ "$ADDON" != ccusage ]]; then
+
+if selected claude; then
+  for path in "$CLAUDE_SETTINGS" "$CLAUDE_JSON" "$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/RTK.md" "$CLAUDE_DIR/hooks/rtk-rewrite.sh" "$CLAUDE_DIR/hooks/.rtk-hook.sha256"; do assert_regular_or_absent "$path"; backup_path "$path"; done
+  backup_path "$CLAUDE_DIR/plugins"
+fi
+if selected codex; then
+  for path in "$CODEX_CONFIG" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md" "$CODEX_DIR/RTK.md" "$CODEX_DIR/engram-instructions.md" "$CODEX_DIR/engram-compact-prompt.md"; do assert_regular_or_absent "$path"; backup_path "$path"; done
+  backup_path "$CODEX_DIR/plugins"
+  backup_path "$HOME_DIR/.agents/plugins"
+fi
+
+fi
 assert_regular_or_absent "$LOCAL_BIN/engram"
 backup_path "$LOCAL_BIN/engram"
 
@@ -533,60 +590,274 @@ PY
 }
 verify_plugins() {
   local name="$1"
-  claude plugin list --json > "$TMP_WORKDIR/claude-plugins.json"
-  codex plugin list --json > "$TMP_WORKDIR/codex-plugins.json"
-  python3 - "$name" "$TMP_WORKDIR/claude-plugins.json" "$TMP_WORKDIR/codex-plugins.json" <<'PY'
+  if selected claude; then claude plugin list --json > "$TMP_WORKDIR/claude-plugins.json"; fi
+  if selected codex; then codex plugin list --json > "$TMP_WORKDIR/codex-plugins.json"; fi
+  python3 - "$name" "$TMP_WORKDIR/claude-plugins.json" "$TMP_WORKDIR/codex-plugins.json" "$CLIENTS" <<'PY'
 import json, pathlib, sys
-name, claude_path, codex_path = sys.argv[1:]
-claude = json.loads(pathlib.Path(claude_path).read_text())
-entries = claude.get("plugins") if isinstance(claude, dict) else claude
-if not isinstance(entries, list):
-    raise SystemExit("Formato de claude plugin list --json nao reconhecido")
-def matches(entry):
-    if not isinstance(entry, dict): return False
-    identifier = entry.get("id") or entry.get("name")
-    return identifier == f"{name}@{name}" or (identifier == name and entry.get("marketplace") in (name, f"Gentleman-Programming/{name}" if name == "engram" else f"DietrichGebert/{name}"))
-hits = [e for e in entries if matches(e) and e.get("scope", "user") == "user"]
-if len(hits) != 1 or hits[0].get("enabled") is not True:
-    raise SystemExit(f"Claude: plugin {name} nao confirmado instalado e habilitado no escopo do usuario")
-codex = json.loads(pathlib.Path(codex_path).read_text())
-if not isinstance(codex, dict) or not isinstance(codex.get("installed"), list):
-    raise SystemExit("Formato de codex plugin list --json nao reconhecido")
-hits = [e for e in codex["installed"] if isinstance(e, dict) and e.get("name") == name and e.get("marketplaceName") == name]
-if len(hits) != 1 or hits[0].get("installed") is not True or hits[0].get("enabled") is not True:
-    raise SystemExit(f"Codex: plugin {name} nao confirmado instalado e habilitado")
-print(f"Plugins {name}: instalados e habilitados nos dois agentes")
-print("Versao Claude:", next(e.get("version", "?") for e in entries if matches(e)))
-print("Versao Codex:", hits[0].get("version", "?"))
+name, claude_path, codex_path, clients = sys.argv[1:]
+clients=clients.split(",")
+if "claude" in clients:
+    claude = json.loads(pathlib.Path(claude_path).read_text())
+    entries = claude.get("plugins") if isinstance(claude, dict) else claude
+    if not isinstance(entries, list):
+        raise SystemExit("Formato de claude plugin list --json nao reconhecido")
+    def matches(entry):
+        if not isinstance(entry, dict): return False
+        identifier = entry.get("id") or entry.get("name")
+        return identifier == f"{name}@{name}" or (identifier == name and entry.get("marketplace") in (name, f"Gentleman-Programming/{name}" if name == "engram" else f"DietrichGebert/{name}"))
+    hits = [e for e in entries if matches(e) and e.get("scope", "user") == "user"]
+    if len(hits) != 1 or hits[0].get("enabled") is not True:
+        raise SystemExit(f"Claude: plugin {name} nao confirmado instalado e habilitado no escopo do usuario")
+if "codex" in clients:
+    codex = json.loads(pathlib.Path(codex_path).read_text())
+    if not isinstance(codex, dict) or not isinstance(codex.get("installed"), list):
+        raise SystemExit("Formato de codex plugin list --json nao reconhecido")
+    hits = [e for e in codex["installed"] if isinstance(e, dict) and e.get("name") == name and e.get("marketplaceName") == name]
+    if len(hits) != 1 or hits[0].get("installed") is not True or hits[0].get("enabled") is not True:
+        raise SystemExit(f"Codex: plugin {name} nao confirmado instalado e habilitado")
+print(f"Plugins {name}: clientes selecionados conferidos")
+PY
+}
+edit_client_json() {
+  local mode="$1" file="$2" kind="$3" name="$4"; shift 4
+  assert_regular_or_absent "$file"
+  [[ "$mode" != apply ]] || backup_path "$file"
+  python3 - "$mode" "$file" "$kind" "$name" "$OPENCODE_MAJOR" "$@" <<'PY'
+import json, os, pathlib, re, stat, sys, tempfile
+mode, filename, kind, name, major = sys.argv[1:6]
+args = sys.argv[6:]
+p = pathlib.Path(filename)
+original = p.read_text() if p.exists() else '{}\n'
+pattern = re.compile(r'\s+|//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null|[{}\[\]:,]')
+def parse(text):
+    tokens=[]; pos=0
+    while pos < len(text):
+        m=pattern.match(text,pos)
+        if not m: raise ValueError('JSONC invalido; arquivo nao alterado')
+        v=m.group(); pos=m.end()
+        if not (v.isspace() or v.startswith('//') or v.startswith('/*')): tokens.append((v,m.start(),m.end()))
+    i=0; objects={}; spans={}
+    def value(path):
+        nonlocal i
+        if i >= len(tokens): raise ValueError('JSONC incompleto')
+        t,start,end=tokens[i]; i+=1
+        if t=='{':
+            out={}; trailing=False
+            while tokens[i][0]!='}':
+                k=json.loads(tokens[i][0]); i+=1
+                if not isinstance(k,str) or k in out: raise ValueError('Chave duplicada/invalida')
+                if tokens[i][0]!=':': raise ValueError('Falta dois-pontos')
+                i+=1; out[k]=value(path+(k,)); trailing=False
+                if tokens[i][0]==',': i+=1; trailing=True
+                elif tokens[i][0]!='}': raise ValueError('Falta virgula')
+            close=tokens[i][1]; end=tokens[i][2]; i+=1
+            objects[path]=(close,bool(out),trailing)
+        elif t=='[':
+            out=[]
+            while tokens[i][0]!=']':
+                out.append(value(path+(len(out),)))
+                if tokens[i][0]==',': i+=1
+                elif tokens[i][0]!=']': raise ValueError('Falta virgula')
+            end=tokens[i][2]; i+=1
+        else:
+            out=json.loads(t)
+        spans[path]=(start,end)
+        return out
+    root=value(())
+    if i!=len(tokens) or not isinstance(root,dict): raise ValueError('Raiz JSONC deve ser objeto unico')
+    return root,objects,spans
+if kind=='memory':
+    changes=[((key,),False,True) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
+else:
+    command=args[0]; argv=args[1:]
+    entry={'command':command,'args':argv}
+    if kind=='cline':
+        entry.update(disabled=False,autoApprove=[]); path=('mcpServers',name)
+    elif kind=='copilot':
+        entry.update(type='local',tools=['*']); path=('mcpServers',name)
+    elif kind=='vscode':
+        entry.update(type='stdio'); path=('servers',name)
+    elif kind=='opencode':
+        entry={'type':'local','command':[command]+argv}
+        entry.update({'disabled':False} if major=='2' else {'enabled':True})
+        path=('mcp','servers',name) if major=='2' else ('mcp',name)
+    else: raise ValueError('Cliente desconhecido')
+    changes=[(path,entry,False)]
+if kind=='opencode':
+    root,_,_=parse(original)
+    current=root.get('mcp',{})
+    if not isinstance(current,dict): raise ValueError('mcp precisa ser objeto')
+    if major=='1' and 'servers' in current: raise ValueError('Encontrado schema MCP v2; confira --opencode-major')
+    if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
+        raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
+text=original
+for path,expected,replace in changes:
+    root,objects,spans=parse(text)
+    node=root
+    for depth,key in enumerate(path):
+        if not isinstance(node,dict): raise ValueError('Estrutura JSONC conflitante; revise manualmente')
+        if key not in node:
+            nested=expected
+            for child in reversed(path[depth+1:]): nested={child:nested}
+            close,has,trailing=objects[path[:depth]]
+            insertion=(',' if has and not trailing else '')+'\n'+json.dumps(key)+': '+json.dumps(nested,ensure_ascii=False,indent=2)+'\n'
+            text=text[:close]+insertion+text[close:]; break
+        if depth==len(path)-1:
+            if node[key]!=expected:
+                if not replace: raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
+        node=node[key]
+# Verify all resulting settings before committing the file.
+root,_,_=parse(text)
+for path,expected,_ in changes:
+    node=root
+    for key in path: node=node[key]
+    if node!=expected: raise ValueError('Verificacao JSONC falhou')
+if mode=='verify' and text!=original: raise ValueError('Configuracao esperada ausente')
+if mode=='apply' and text!=original:
+    p.parent.mkdir(parents=True,exist_ok=True)
+    fd,tmp=tempfile.mkstemp(prefix='.'+p.name+'.',dir=str(p.parent))
+    try:
+        with os.fdopen(fd,'w') as f: f.write(text)
+        os.chmod(tmp,stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600)
+        if (p.read_text() if p.exists() else '{}\n')!=original: raise ValueError('Arquivo mudou durante a edicao')
+        os.replace(tmp,p)
+    finally:
+        if os.path.exists(tmp): os.unlink(tmp)
+print(f'{mode}: {kind}/{name}: {filename}')
 PY
 }
 
+new_client_mcp() {
+  local mode="$1" client="$2" name="$3" command_name="$4" file; shift 4
+  case "$client" in
+    cline) file="$CLINE_CONFIG" ;;
+    opencode) file="$OC_CONFIG_FILE" ;;
+    copilot) file="$COPILOT_DIR/mcp-config.json" ;;
+    vscode) file="$VSCODE_USER_DIR/mcp.json" ;;
+    *) die "Cliente MCP invalido: $client" ;;
+  esac
+  if [[ "$command_name" == npx ]]; then command_name="$(command -v npx)"; fi
+  edit_client_json "$mode" "$file" "$client" "$name" "$command_name" "$@"
+}
 
-claude_mcp_state engram "$LOCAL_BIN/engram" mcp --tools=agent >/dev/null || die 'Revise a entrada Claude MCP engram antes de prosseguir.'
-codex_mcp_state engram "$LOCAL_BIN/engram" mcp --tools=agent >/dev/null || die 'Revise a entrada Codex MCP engram antes de prosseguir.'
+all_mcp() {
+  local mode="$1" name="$2" command_name="$3" client context state; shift 3
+  local argv=()
+  for client in claude codex cline opencode copilot vscode; do
+    selected "$client" || continue
+    argv=("$@")
+    if [[ "$name" == serena ]]; then
+      case "$client" in claude) context=claude-code ;; codex) context=codex ;; copilot) context=copilot-cli ;; vscode) context=vscode ;; *) context=ide ;; esac
+      argv=(start-mcp-server --context "$context" --add-mode no-memories)
+      case "$client" in
+        claude|codex|copilot) argv+=(--project-from-cwd) ;;
+        *) [[ -z "$PROJECT_DIR" ]] || argv+=(--project "$PROJECT_DIR") ;;
+      esac
+      # Keep the original argument order for existing Claude/Codex installations.
+      if [[ "$client" == claude || "$client" == codex ]]; then
+        argv=(start-mcp-server --context "$context" --project-from-cwd --add-mode no-memories)
+      fi
+    fi
+    case "$client" in
+      claude|codex)
+        if [[ "$mode" == apply ]]; then
+          "ensure_${client}_mcp" "$name" "$command_name" "${argv[@]}"
+        else
+          state="$("${client}_mcp_state" "$name" "$command_name" "${argv[@]}")"
+          [[ "$mode" != verify || "$state" == matching ]] || die "MCP $name ausente no $client"
+        fi ;;
+      *) new_client_mcp "$mode" "$client" "$name" "$command_name" "${argv[@]}" ;;
+    esac
+  done
+}
+write_managed_rule() {
+  local file="$1" source="$2" frontmatter="${3:-0}"
+  assert_regular_or_absent "$file"
+  backup_path "$file"
+  python3 - "$file" "$source" "$ADDON" "$frontmatter" <<'PY'
+import os,pathlib,stat,sys,tempfile
+p,source,addon,frontmatter=sys.argv[1:]; p=pathlib.Path(p)
+old=p.read_text() if p.exists() else ''
+start=f'<!-- six-addons:{addon}:begin -->'; end=f'<!-- six-addons:{addon}:end -->'
+block=start+'\n'+pathlib.Path(source).read_text().strip()+'\n'+end
+if start in old or end in old:
+    if old.count(start)!=1 or old.count(end)!=1 or old.index(start)>old.index(end):
+        raise ValueError('Bloco gerenciado corrompido; nenhuma alteracao')
+    a=old.index(start); b=old.index(end)+len(end); new=old[:a]+block+old[b:]
+else:
+    prefix='---\napplyTo: "**"\n---\n\n' if frontmatter=='1' and not old else ''
+    if frontmatter=='1' and old: raise ValueError('Arquivo de instrucoes ja existe sem bloco gerenciado; revise manualmente')
+    new=old+('\n\n' if old else prefix)+block+'\n'
+if new!=old:
+    p.parent.mkdir(parents=True,exist_ok=True)
+    fd,tmp=tempfile.mkstemp(prefix='.'+p.name+'.',dir=str(p.parent))
+    try:
+        with os.fdopen(fd,'w') as f:f.write(new)
+        os.chmod(tmp,stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600)
+        if (p.read_text() if p.exists() else '')!=old: raise ValueError('Arquivo mudou durante a edicao')
+        os.replace(tmp,p)
+    finally:
+        if os.path.exists(tmp):os.unlink(tmp)
+assert p.read_text().count(start)==1 and block in p.read_text()
+print(f'Instrucoes {addon}: {p}')
+PY
+}
 
+new_client_rules() {
+  local source="$1"
+  if selected cline; then write_managed_rule "$HOME_DIR/.cline/rules/six-addons-$ADDON.md" "$source"; fi
+  if selected opencode; then write_managed_rule "$OPENCODE_DIR/AGENTS.md" "$source"; fi
+  if selected copilot; then write_managed_rule "$COPILOT_DIR/copilot-instructions.md" "$source"; fi
+  if selected vscode; then write_managed_rule "$VSCODE_USER_DIR/prompts/six-addons-$ADDON.instructions.md" "$source" 1; fi
+}
+
+
+all_mcp check engram "$LOCAL_BIN/engram" mcp --tools=agent
 ENGRAM_TAG="$(download_verified_release_asset 'Gentleman-Programming/engram' "@engram-linux-$ASSET_ARCH" "$TMP_WORKDIR/engram.tar.gz")"
 extract_archive_binary "$TMP_WORKDIR/engram.tar.gz" engram "$TMP_WORKDIR/engram"
 install -m 0755 "$TMP_WORKDIR/engram" "$LOCAL_BIN/engram"
 printf 'Engram instalado: %s\n' "$ENGRAM_TAG"
-set_claude_auto_memory_off
-set_codex_native_memory_off
-"$LOCAL_BIN/engram" setup claude-code
-"$LOCAL_BIN/engram" setup codex
+
+if selected claude; then set_claude_auto_memory_off; "$LOCAL_BIN/engram" setup claude-code; fi
+if selected codex; then set_codex_native_memory_off; "$LOCAL_BIN/engram" setup codex; fi
+all_mcp apply engram "$LOCAL_BIN/engram" mcp --tools=agent
+all_mcp verify engram "$LOCAL_BIN/engram" mcp --tools=agent
+if selected claude && selected codex; then verify_native_memory_off; fi
+verify_plugins engram
 "$LOCAL_BIN/engram" version
 "$LOCAL_BIN/engram" mcp --help >/dev/null
-[[ "$(claude_mcp_state engram "$LOCAL_BIN/engram" mcp --tools=agent)" == matching ]] || die 'Verificacao Claude MCP engram falhou.'
-[[ "$(codex_mcp_state engram "$LOCAL_BIN/engram" mcp --tools=agent)" == matching ]] || die 'Verificacao Codex MCP engram falhou.'
-codex mcp list --json >/dev/null
-verify_native_memory_off
-verify_plugins engram
+cat > "$TMP_WORKDIR/engram-rules.md" <<'RULES'
+# Engram: exclusive persistent agent memory
+Use only Engram MCP for persistent memories. Do not create or update a Memory Bank,
+Serena memories, native Copilot memories, or memory notes in AGENTS.md/CLAUDE.md.
+Instruction files are configuration, not storage for learned facts.
+At session start, call mem_session_start with the actual workspace directory;
+use the returned session/project identity instead of inventing project names.
+Use mem_context then mem_search to retrieve relevant prior work; get full records
+with mem_get_observation. Save durable decisions and fixes with mem_save, using
+the session identity, a descriptive topic_key, and What/Why/Where/Learned.
+Update existing topics instead of duplicating them. Before finishing, write a
+mem_session_summary and close the session with mem_session_end when appropriate.
+Never store secrets, credentials or private raw logs in memory. If memory calls fail,
+report that briefly and still deliver the requested work. Do not start another store.
+RULES
+new_client_rules "$TMP_WORKDIR/engram-rules.md"
+if selected vscode; then
+  edit_client_json apply "$VSCODE_USER_DIR/settings.json" memory engram
+  edit_client_json verify "$VSCODE_USER_DIR/settings.json" memory engram
+fi
+if selected copilot || selected vscode; then
+  printf '\nACAO MANUAL: desative Copilot Memory nas configuracoes da conta GitHub. Revise overrides do workspace/perfil. Veja README.\n'
+fi
+
 
 printf '\nConcluido: Engram instalado/configurado para o usuario.\n'
 printf 'Backup: %s\nLog: %s\n' "$BACKUP_DIR" "$LOG_FILE"
 printf 'Reinicie os agentes para carregar a integracao.
 '
-printf 'No Codex, abra /hooks para revisar e confiar nos hooks do plugin e inicie nova sessao.
-'
+if selected codex; then printf 'No Codex, abra /hooks para revisar e confiar nos hooks do plugin e inicie nova sessao.
+'; fi
 if [[ ":$ORIGINAL_PATH:" != *":$LOCAL_BIN:"* ]]; then
   printf 'Inclua %s no PATH das sessoes que iniciam os agentes.\n' "$LOCAL_BIN"
 fi
