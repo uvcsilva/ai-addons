@@ -52,6 +52,25 @@ clientes, como Claude Code, continuam sendo instalados separadamente. Como o pad
 dos seis instaladores é `claude,codex`, use `--clients codex` se ainda não tiver
 instalado o Claude Code.
 
+Para também preparar OpenCode:
+
+```bash
+bash install-dependencies-ubuntu.sh --with-opencode
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Essa opção instala OpenCode 1 (`opencode-ai@1`) se o comando estiver ausente,
+conforme o [método npm oficial](https://opencode.ai/docs/). Uma instalação existente
+de OpenCode 1 ou 2 é preservada e sua versão é conferida. Os demais clientes
+continuam com instalação e autenticação próprias.
+
+**`--clients all` significa todos os clientes, não todos os addons.** Os seis addons
+podem ser instalados apenas no Codex passando `--clients codex` a cada instalador.
+Para `all`, OpenCode precisa estar disponível no PATH para detectar o schema 1/2;
+também é necessário Claude Code. O bootstrap informa essas pendências ao terminar.
+Só use `--opencode-major 1|2` para preparar a configuração de uma versão conhecida;
+essa opção não instala OpenCode e não deve ser escolhida por tentativa.
+
 - Ubuntu Linux, Bash 4+, usuário normal, sem executar os scripts com `sudo`.
 - x86_64 ou aarch64/arm64 para os instaladores de binários.
 - Instale e autentique os clientes que pretende usar. Apenas Claude/Codex selecionados

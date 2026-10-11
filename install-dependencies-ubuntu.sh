@@ -9,6 +9,7 @@ readonly LOCAL_BIN="$HOME_DIR/.local/bin"
 readonly NODE_ROOT="$HOME_DIR/.local/lib/nodejs"
 readonly NPM_REGISTRY="https://registry.npmjs.org"
 TMP_DIR=""
+WITH_OPENCODE=false
 
 die() {
   printf '[ERRO] %s\n' "$*" >&2
@@ -24,21 +25,28 @@ trap cleanup EXIT
 
 usage() {
   cat <<EOF
-Uso: bash $SCRIPT_NAME
+Uso: bash $SCRIPT_NAME [--with-opencode]
 
 Prepara os pre-requisitos para os seis addons no Ubuntu:
   curl, git, jq, Python 3, sha256sum, flock, Node.js LTS, npm, npx e Codex CLI.
+
+  --with-opencode  Instala OpenCode 1 via opencode-ai@1 se ausente.
+                   Preserva OpenCode 1 ou 2 existente e valida sua versao.
+  --help          Mostra esta ajuda.
 
 Execute como usuario normal. O script usa sudo somente para instalar pacotes do
 Ubuntu e nao autentica o Codex. Na primeira execucao, rode: codex login
 EOF
 }
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  usage
-  exit 0
-fi
-[[ $# -eq 0 ]] || die "Opcao desconhecida: $1. Use --help."
+while (($#)); do
+  case "$1" in
+    --with-opencode) WITH_OPENCODE=true ;;
+    --help|-h) usage; exit 0 ;;
+    *) die "Opcao desconhecida: $1. Use --help." ;;
+  esac
+  shift
+done
 
 [[ "${EUID:-$(id -u)}" -ne 0 ]] || die 'Execute como usuario normal, sem sudo.'
 [[ -r /etc/os-release ]] || die 'Nao foi possivel identificar a distribuicao Linux.'
@@ -48,18 +56,31 @@ fi
 command -v sudo >/dev/null 2>&1 || die 'O comando sudo e necessario para instalar pacotes do Ubuntu.'
 command -v dpkg >/dev/null 2>&1 || die 'dpkg nao foi encontrado.'
 
+case "$(dpkg --print-architecture)" in
+  amd64) NODE_ARCH='x64' ;;
+  arm64) NODE_ARCH='arm64' ;;
+  *) die "Arquitetura nao suportada: $(dpkg --print-architecture). Use Ubuntu amd64 ou arm64." ;;
+esac
+
+# Detecta conflitos antes de alterar os pacotes do sistema ou baixar arquivos.
+[[ ! -e "$NODE_ROOT/current" || -L "$NODE_ROOT/current" ]] \
+  || die "$NODE_ROOT/current precisa ser um link simbolico; nao sera sobrescrito."
+for binary in node npm npx; do
+  link="$LOCAL_BIN/$binary"
+  target="$NODE_ROOT/current/bin/$binary"
+  if [[ -e "$link" || -L "$link" ]]; then
+    if [[ ! -L "$link" ]] || [[ "$(readlink "$link")" != "$target" ]]; then
+      die "$link ja existe e nao pertence a este instalador; resolva esse conflito antes de continuar."
+    fi
+  fi
+done
+
 sudo -v
 printf '[1/5] Instalando ferramentas e bibliotecas basicas do Ubuntu...\n'
 sudo apt-get update
 sudo apt-get install -y ca-certificates coreutils curl git jq python3 tar util-linux xz-utils
 command -v curl >/dev/null 2>&1 || die 'curl nao foi instalado.'
 command -v python3 >/dev/null 2>&1 || die 'python3 nao foi instalado.'
-
-case "$(dpkg --print-architecture)" in
-  amd64) NODE_ARCH='x64' ;;
-  arm64) NODE_ARCH='arm64' ;;
-  *) die "Arquitetura nao suportada: $(dpkg --print-architecture). Use Ubuntu amd64 ou arm64." ;;
-esac
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/addons-prereqs.XXXXXX")"
 NODE_INDEX="$TMP_DIR/node-index.json"
@@ -117,15 +138,6 @@ PY
   tar -xJf "$NODE_ARCHIVE" -C "$NODE_ROOT"
 fi
 
-for binary in node npm npx; do
-  link="$LOCAL_BIN/$binary"
-  target="$NODE_ROOT/current/bin/$binary"
-  if [[ -e "$link" || -L "$link" ]]; then
-    if [[ ! -L "$link" ]] || [[ "$(readlink -- "$link")" != "$target" ]]; then
-      die "$link ja existe e nao pertence a este instalador; resolva esse conflito antes de continuar."
-    fi
-  fi
-done
 ln -sfn "$NODE_DIST" "$NODE_ROOT/current"
 for binary in node npm npx; do
   link="$LOCAL_BIN/$binary"
@@ -135,7 +147,7 @@ for binary in node npm npx; do
 done
 export PATH="$LOCAL_BIN:$PATH"
 
-printf '[4/5] Preparando o PATH e instalando Codex CLI...\n'
+printf '[4/5] Preparando o PATH e os clientes solicitados...\n'
 PROFILE="$HOME_DIR/.profile"
 touch "$PROFILE"
 if ! grep -Fq '# addons: user-local PATH' "$PROFILE"; then
@@ -158,15 +170,34 @@ else
   printf 'Codex ja esta disponivel em %s; mantendo a instalacao existente.\n' "$(command -v codex)"
 fi
 
-printf '[5/5] Dependencias prontas. Versoes detectadas:\n'
+if "$WITH_OPENCODE"; then
+  if ! command -v opencode >/dev/null 2>&1; then
+    npm install --global --prefix "$HOME_DIR/.local" \
+      --registry="$NPM_REGISTRY" --engine-strict=true opencode-ai@1
+  fi
+  opencode_version="$(opencode --version)" || die 'OpenCode esta instalado, mas falhou ao informar a versao.'
+  case "$opencode_version" in
+    1.*|v1.*|2.*|v2.*) printf 'OpenCode detectado: %s\n' "$opencode_version" ;;
+    *) die "Versao OpenCode nao reconhecida pelos addons: $opencode_version." ;;
+  esac
+fi
+
+printf '[5/5] Conferindo dependencias comuns e Codex. Versoes detectadas:\n'
 for binary in jq git python3 node npm npx codex; do
   command -v "$binary" >/dev/null 2>&1 || die "$binary nao esta disponivel no PATH apos a instalacao."
-  case "$binary" in
-    codex) "$binary" --version ;;
-    *) "$binary" --version 2>&1 | head -n 1 ;;
-  esac
+  "$binary" --version
 done
 command -v sha256sum >/dev/null 2>&1 || die 'sha256sum nao foi instalado.'
 command -v flock >/dev/null 2>&1 || die 'flock nao foi instalado.'
 printf '\nAutentique o Codex com: codex login\n'
 printf 'O PATH foi salvo em %s; abra uma nova sessao para aplica-lo.\n' "$PROFILE"
+printf 'Para aplicar agora neste terminal: export PATH="$HOME/.local/bin:$PATH"\n'
+printf '\nOs seis addons podem ser instalados somente no Codex com --clients codex.\n'
+printf -- '--clients all seleciona seis clientes; nao significa somente os seis addons.\n'
+if ! command -v opencode >/dev/null 2>&1; then
+  printf 'OpenCode ausente: reexecute este bootstrap com --with-opencode para usa-lo.\n'
+fi
+if ! command -v claude >/dev/null 2>&1; then
+  printf 'Claude Code ausente: instale seu CLI antes de selecionar claude ou all.\n'
+fi
+printf 'Cline, Copilot e VS Code devem ser instalados/configurados separadamente para uso.\n'
