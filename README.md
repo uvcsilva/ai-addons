@@ -4,9 +4,12 @@
 usuário. Suporte a Claude Code, Codex, Cline, OpenCode, Copilot CLI e Copilot no VS Code.
 OpenRouter é configurado como provedor dentro do cliente.
 
-Cada `.sh` é completo e pode ser copiado sozinho. Não há instalador unificado,
-biblioteca externa compartilhada ou orquestrador. Um bloqueio compartilhado evita
-que estes scripts alterem configurações ao mesmo tempo. Execute um por vez.
+Cada `.sh` é completo e pode ser copiado sozinho. Há seis instaladores de addons e
+um script de preparação, `install-dependencies-ubuntu.sh`. O script de preparação
+instala dependências e clientes conforme suas opções; os addons são instalados
+pelos outros seis scripts. Não há biblioteca externa compartilhada ou orquestrador.
+Os seis instaladores de addons compartilham um bloqueio de configuração; o script
+de preparação não participa desse bloqueio. Execute todos os scripts um por vez.
 
 ## 1. Compatibilidade real
 
@@ -42,12 +45,15 @@ instaladores:
 
 ```bash
 bash install-dependencies-ubuntu.sh
+export PATH="$HOME/.local/bin:$PATH"
+codex login
 ```
 
 O script instala `curl`, `git`, `jq`, Python 3, `sha256sum`, `flock`, Node.js LTS,
 `npm`, `npx` e Codex CLI. Execute como usuário normal; ele pede `sudo` apenas para
-instalar pacotes do Ubuntu. Node.js, npm e Codex ficam no escopo do usuário, em
-`~/.local`. Na primeira execução do Codex, autentique com `codex login`. Outros
+instalar pacotes do Ubuntu. As novas instalações de Node.js, npm e Codex ficam no
+escopo do usuário, em `~/.local`. Um Codex já disponível no PATH é preservado.
+Use `codex login` se ainda não estiver autenticado. Outros
 clientes, como Claude Code, continuam sendo instalados separadamente. Como o padrão
 dos seis instaladores é `claude,codex`, use `--clients codex` se ainda não tiver
 instalado o Claude Code.
@@ -70,6 +76,10 @@ Para `all`, OpenCode precisa estar disponível no PATH para detectar o schema 1/
 também é necessário Claude Code. O bootstrap informa essas pendências ao terminar.
 Só use `--opencode-major 1|2` para preparar a configuração de uma versão conhecida;
 essa opção não instala OpenCode e não deve ser escolhida por tentativa.
+
+O script de preparação aceita somente `--help` e `--with-opencode`. Ele não aceita
+`--clients` nem `--dry-run`. A alteração do PATH dentro de um script não se propaga
+ao terminal que o iniciou; por isso os exemplos incluem `export PATH=...`.
 
 - Ubuntu Linux, Bash 4+, usuário normal, sem executar os scripts com `sudo`.
 - x86_64 ou aarch64/arm64 para os instaladores de binários.
@@ -110,7 +120,8 @@ absoluto para `npx` nos novos clientes, o processo precisa conseguir localizar N
 
 ## 3. Clientes, caminhos e opções
 
-Todos os scripts aceitam:
+Os seis instaladores de addons aceitam as opções abaixo. Elas não se aplicam a
+`install-dependencies-ubuntu.sh`:
 
 ```text
 --help
@@ -182,17 +193,30 @@ configura o projeto do Engram ou dos três clientes CLI.
 
 ## 4. Ordem de execução
 
-Extraia o ZIP, entre em `addons-ubuntu` e confira o pacote:
+Entre na pasta da sua cópia do repositório (por exemplo, `~/addons`) e consulte
+as opções antes de instalar:
 
 ```bash
-sha256sum -c SHA256SUMS
 bash install-engram-ubuntu.sh --help
-bash install-engram-ubuntu.sh --clients all --dry-run
+bash install-engram-ubuntu.sh --clients codex --dry-run
 ```
 
 A ordem recomendada estabelece a memória primeiro. Os scripts continuam independentes.
-A sequência abaixo é para todos os clientes, usando o **Cline CLI e o perfil padrão
-VS Code**; ajuste as opções conforme a seção 3:
+Para instalar os seis addons **somente no Codex**, após a preparação da seção 2:
+
+```bash
+bash install-engram-ubuntu.sh --clients codex &&
+bash install-serena-ubuntu.sh --clients codex &&
+bash install-context7-ubuntu.sh --clients codex &&
+bash install-rtk-ubuntu.sh --clients codex &&
+bash install-ccusage-ubuntu.sh --clients codex &&
+bash install-ponytail-ubuntu.sh --clients codex
+```
+
+Para **todos os seis clientes**, prepare também OpenCode com `--with-opencode` e
+instale Claude Code. A sequência abaixo usa o **Cline CLI e o perfil padrão
+VS Code**; ajuste os destinos conforme a seção 3. Os aplicativos e suas contas
+precisam estar configurados para usar as integrações:
 
 ```bash
 bash install-engram-ubuntu.sh --clients all &&
@@ -204,6 +228,9 @@ bash install-ponytail-ubuntu.sh --clients all
 ```
 
 `&&` interrompe a sequência se algum script falhar. Não rode em paralelo.
+O setup oficial do Engram pode solicitar confirmação para adicionar ferramentas
+à lista de permissões do Claude; responda no terminal. Aguarde a mensagem
+`Concluido:` de cada instalador antes de considerá-lo finalizado.
 Para apenas os clientes novos:
 
 ```bash
@@ -308,16 +335,20 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
 - RTK, Engram e uv: release estável mais recente do repositório oficial, com digest
   SHA-256 informado pela API GitHub; ausência/incompatibilidade do digest interrompe.
   Isso verifica integridade, não é auditoria ou assinatura independente do fornecedor.
-- Arquivos de arquivo compactado são lidos seletivamente, sem extração indiscriminada.
+- Os instaladores de RTK, Engram e uv extraem seletivamente os binários dos arquivos
+  compactados. O bootstrap extrai a distribuição completa do Node.js em `~/.local/lib/nodejs`.
   Não há `curl | bash`. Pacotes e plugins oficiais instalados continuam sendo código
   de terceiros executado com as permissões do usuário.
 - O bootstrap usa a versão LTS do Node.js publicada em nodejs.org, validando o SHA-256
-  publicado para o arquivo baixado, e instala Codex CLI com `@latest` via npm.
+  publicado para o arquivo baixado. Instala Codex CLI com `@latest` via npm somente
+  se ausente; com `--with-opencode`, instala `opencode-ai@1` somente se ausente.
+  Reexecutar o bootstrap pode atualizar o Node LTS, mas preserva os clientes existentes.
 - Serena usa `uv tool install --upgrade -p 3.13 serena-agent`; ccusage usa `@latest`
   com validação de requisitos de Node pelo npm. Context7 usa o pacote oficial via npx,
   sem versão fixa, resolvido ao iniciar. Plugins nativos usam os marketplaces oficiais.
 - Regras Ponytail dos novos clientes são um snapshot incorporado de `AGENTS.md`, commit
-  `9b58c1ffb790c075ca32e70a89cf1d80588f4abf`. Licença em `PONYTAIL-LICENSE.txt`.
+  `9b58c1ffb790c075ca32e70a89cf1d80588f4abf`. Consulte a licença no repositório oficial
+  do Ponytail listado na seção 10; não há `PONYTAIL-LICENSE.txt` nesta cópia.
   Regras RTK são geradas pelo binário instalado. O protocolo Engram desses clientes é
   uma adaptação resumida incluída no script.
 - Reexecutar pode atualizar binários/pacotes/plugins. Configurações iguais e blocos
@@ -329,9 +360,11 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   Arquivos gerenciados de instruções VS Code preexistentes sem marcador são recusados.
 - Configurações por link simbólico são recusadas. Faça alterações deliberadas no alvo
   ou adapte sua configuração antes de reexecutar; não remova links sem avaliar seu uso.
-- Logs e backups ficam em `${XDG_STATE_HOME:-~/.local/state}/six-addons-installer/`.
+- Os logs e backups dos seis instaladores de addons ficam em
+  `${XDG_STATE_HOME:-~/.local/state}/six-addons-installer/`.
   Diretórios privados usam modo 700; logs, 600. Configurações existentes mantêm seu modo.
   Backups podem conter credenciais preexistentes: não publique o conteúdo.
+  O bootstrap não gera esses logs nem backups; sua saída aparece no terminal.
 - Há backup antes das alterações de configuração. Não há snapshot integral de pacotes,
   rollback automático ou remoção de arquivos novos na falha. Uma falha pode deixar
   etapas anteriores concluídas; o erro informa linha/código, log e backup.
@@ -344,20 +377,58 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
 O pacote não adiciona Headroom, OpenSpec, Beads, Context Mode, jCodeMunch,
 codebase-memory-mcp ou orquestrador; também não remove instalações anteriores deles.
 
-## 9. Validação entregue
+### Recuperar uma instalação interrompida
 
-Veja `VALIDACAO.txt`: `bash -n` nos seis arquivos, ShellCheck, compilação dos Python
-embutidos, help/dry-run em HOME isolado, testes de preservação/idempotência/conflitos,
-backups, flags de memória e schemas/despacho dos novos clientes.
+Se aparecer `Instale OpenCode ou informe --opencode-major 1|2`, confira a seleção de
+clientes. Para usar OpenCode, execute o bootstrap com `--with-opencode`, aplique o
+PATH da seção 2 e reexecute o instalador que falhou. Para usar apenas Codex, passe
+`--clients codex` em todos os seis comandos.
 
-**Executado em macOS arm64, com verificações estáticas e cenários simulados. Não houve
-instalação real em Ubuntu nem teste com modelos/clientes autenticados.** A confirmação
-operacional na sua máquina segue a seção 7. Scripts de validação estão incluídos em
-`validation/`, são opcionais e não são dependências dos instaladores.
+Versões anteriores deste instalador Engram podiam parar logo depois de imprimir
+`engram 3.3.2`. A causa era a chamada `engram mcp --help`: nessa versão ela inicia
+o servidor MCP e aguarda entrada, em vez de exibir ajuda. Essa chamada foi removida
+do instalador atual. Se estiver nessa situação:
 
-A seleção de GPT-6.1 Sol / reasoning High para este chat é feita pelo controle de
-modelo/esforço do aplicativo; os instaladores não alteram esse controle nem modelos
-configurados nos clientes.
+1. Interrompa a execução antiga com **Ctrl+C**.
+2. Atualize `install-engram-ubuntu.sh` na máquina Ubuntu com a cópia corrigida.
+3. Reexecute o instalador Engram com os mesmos clientes e caminhos escolhidos.
+4. Após a mensagem `Concluido: Engram instalado/configurado para o usuario.`,
+   prossiga com os demais addons na ordem da seção 4. Também é possível reexecutar
+   a sequência completa com `&&`, começando pelo Engram.
+
+Imprimir a versão do Engram não conclui sua instalação: a gravação das regras dos
+novos clientes e os ajustes de memória do VS Code ocorrem depois. A interrupção
+preserva alterações já realizadas; não apague as configurações para recomeçar.
+Se a reexecução apontar um conflito, confira o destino e o backup informado.
+
+Para investigar outros erros, consulte o caminho de log exibido no começo da
+execução. A sequência com `&&` só inicia o próximo addon quando o anterior termina
+com sucesso.
+
+## 9. Validação e limites conhecidos
+
+Na revisão de 11/10/2026, foram realizadas verificações de sintaxe Bash e de diff
+nos scripts alterados. O bootstrap passou por seis cenários simulados: instalação
+padrão, instalação opcional de OpenCode, preservação de OpenCode 2, rejeição de versão
+incompatível, conflito de arquivos antes de `sudo` e recusa de checksum incorreto.
+A reexecução também conferiu que o bloco de PATH não é duplicado.
+
+O relato de execução em Ubuntu 26.04 arm64 confirmou a conclusão do bootstrap com
+Codex preexistente. A execução do Engram 3.3.2 avançou até as verificações de MCP e
+plugins, mas parou na chamada de ajuda descrita acima. A correção passou pela
+verificação de sintaxe; a conclusão da sequência completa em Ubuntu ainda precisa
+ser confirmada. Esses resultados não comprovam chamadas reais aos modelos ou o
+funcionamento de todos os MCPs; faça a conferência da seção 7.
+
+Esta cópia do repositório não inclui `VALIDACAO.txt`, `validation/` nem
+`SHA256SUMS`. As simulações mencionadas foram executadas fora do repositório.
+Para conferir localmente a sintaxe dos sete scripts sem instalar nada:
+
+```bash
+for script in install-*-ubuntu.sh; do
+  bash -n "$script" || break
+done
+```
 
 ## 10. Fontes oficiais
 
