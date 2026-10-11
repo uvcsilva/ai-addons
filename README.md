@@ -37,6 +37,21 @@ memória persistente escolhida; veja as etapas necessárias para exclusividade n
 
 ## 2. Preparação
 
+Prepare os pré-requisitos compartilhados e o Codex CLI antes de executar os
+instaladores:
+
+```bash
+bash install-dependencies-ubuntu.sh
+```
+
+O script instala `curl`, `git`, `jq`, Python 3, `sha256sum`, `flock`, Node.js LTS,
+`npm`, `npx` e Codex CLI. Execute como usuário normal; ele pede `sudo` apenas para
+instalar pacotes do Ubuntu. Node.js, npm e Codex ficam no escopo do usuário, em
+`~/.local`. Na primeira execução do Codex, autentique com `codex login`. Outros
+clientes, como Claude Code, continuam sendo instalados separadamente. Como o padrão
+dos seis instaladores é `claude,codex`, use `--clients codex` se ainda não tiver
+instalado o Claude Code.
+
 - Ubuntu Linux, Bash 4+, usuário normal, sem executar os scripts com `sudo`.
 - x86_64 ou aarch64/arm64 para os instaladores de binários.
 - Instale e autentique os clientes que pretende usar. Apenas Claude/Codex selecionados
@@ -56,12 +71,15 @@ memória persistente escolhida; veja as etapas necessárias para exclusividade n
 
 `flock` vem de `util-linux`; `sha256sum`, de `coreutils`. São necessários também os
 utilitários básicos do Ubuntu (`install`, `tee`, `sed`, `mktemp`, entre outros).
-Os scripts relatam dependências ausentes; não alteram pacotes do sistema nem
-instalam os clientes. Serena instala uv/uvx e Python 3.13 isolado como dependências.
+Os seis instaladores relatam dependências ausentes; não alteram pacotes do sistema
+nem instalam clientes. O bootstrap acima cuida dessa preparação separadamente.
+Serena instala uv/uvx e Python 3.13 isolado como dependências.
 Para TOML Codex com strings multilinha, a edição de memória requer Python 3.11+;
 em Python anterior, esse formato é recusado.
 
-Inclua `~/.local/bin` no PATH das sessões que iniciam os clientes:
+O bootstrap inclui `~/.local/bin` no `~/.profile`. Confira se as sessões que iniciam
+os clientes recebem esse PATH; se necessário, adicione a linha abaixo ao arquivo
+adequado do shell:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -274,6 +292,8 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
 - Arquivos de arquivo compactado são lidos seletivamente, sem extração indiscriminada.
   Não há `curl | bash`. Pacotes e plugins oficiais instalados continuam sendo código
   de terceiros executado com as permissões do usuário.
+- O bootstrap usa a versão LTS do Node.js publicada em nodejs.org, validando o SHA-256
+  publicado para o arquivo baixado, e instala Codex CLI com `@latest` via npm.
 - Serena usa `uv tool install --upgrade -p 3.13 serena-agent`; ccusage usa `@latest`
   com validação de requisitos de Node pelo npm. Context7 usa o pacote oficial via npx,
   sem versão fixa, resolvido ao iniciar. Plugins nativos usam os marketplaces oficiais.
