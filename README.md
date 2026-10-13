@@ -170,8 +170,8 @@ Este pacote não instala servidores remotos nem detecta perfis/ambientes automat
 
 ### Projeto do Serena
 
-Claude, Codex e Copilot CLI usam `--project-from-cwd`. Inicie esses clientes na pasta
-do projeto. Para Cline, OpenCode e VS Code, o padrão deixa a ativação para a sessão:
+Claude, Codex, Copilot CLI e OpenCode usam `--project-from-cwd`. Inicie esses clientes
+na pasta do projeto. Para Cline e VS Code, o padrão deixa a ativação para a sessão:
 peça ao Serena para ativar o caminho absoluto do projeto atual.
 
 `--project-dir` fixa um projeto para **Cline/OpenCode/VS Code**, na configuração global.

@@ -826,7 +826,6 @@ all_mcp verify engram "$LOCAL_BIN/engram" mcp --tools=agent
 if selected claude && selected codex; then verify_native_memory_off; fi
 verify_plugins engram
 "$LOCAL_BIN/engram" version
-"$LOCAL_BIN/engram" mcp --help >/dev/null
 cat > "$TMP_WORKDIR/engram-rules.md" <<'RULES'
 # Engram: exclusive persistent agent memory
 Use only Engram MCP for persistent memories. Do not create or update a Memory Bank,

@@ -120,7 +120,7 @@ Simulacao de Serena: sem alteracoes e sem acesso a rede.
   OpenCode: $OPENCODE_DIR (major: ${OPENCODE_MAJOR:-detectar})
   Copilot CLI: $COPILOT_DIR
   VS Code User: $VSCODE_USER_DIR
-  Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
+  Serena projeto novos clientes: ${PROJECT_DIR:-OpenCode ativa por cwd; Cline/VS Code ativam na sessao}
   • Exigir Ubuntu, usuario sem sudo e: curl, python3, sha256sum, flock.
   • Instalar uv/uvx e Serena isolado com Python 3.13.
   • Registrar MCP com contexto de cada cliente e --add-mode no-memories.
@@ -535,6 +535,12 @@ all_mcp() {
       argv=(start-mcp-server --context "$context" --add-mode no-memories)
       case "$client" in
         claude|codex|copilot) argv+=(--project-from-cwd) ;;
+        opencode)
+          if [[ -z "$PROJECT_DIR" ]]; then
+            argv=(start-mcp-server --context "$context" --project-from-cwd --add-mode no-memories)
+          else
+            argv+=(--project "$PROJECT_DIR")
+          fi ;;
         *) [[ -z "$PROJECT_DIR" ]] || argv+=(--project "$PROJECT_DIR") ;;
       esac
       # Keep the original argument order for existing Claude/Codex installations.
