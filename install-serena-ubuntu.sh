@@ -21,6 +21,8 @@ CODEX_DIR="${CODEX_HOME:-$HOME_DIR/.codex}"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
 CLIENTS="claude,codex"
 PROJECT_DIR=""
+WITH_GO=0
+CHECK_GO_PROJECT=""
 CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
 OC_CONFIG_FILE=""
@@ -39,6 +41,8 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
 
   --dry-run  Mostra o plano, sem rede, arquivos, logs ou alteracoes.
   --help     Mostra esta ajuda.
+  --with-go  Prepara Go e gopls para projetos Go (preserva instalacoes existentes).
+  --check-go-project DIR  Testa o LSP lendo simbolos de um projeto Go existente.
   --clients LISTA  claude,codex,cline,opencode,copilot,vscode ou all.
                    Padrao: claude,codex. copilot = CLI; vscode = Copilot VS Code.
   --cline-config ARQUIVO  MCP do Cline CLI ou extensao (caminho absoluto).
@@ -85,7 +89,8 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir)
+    --with-go) WITH_GO=1; shift ;;
+    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir|--check-go-project)
       (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
       case "$1" in
         --clients) CLIENTS="$2" ;;
@@ -93,6 +98,7 @@ while (($#)); do
         --vscode-user-dir) VSCODE_USER_DIR="$2" ;;
         --opencode-major) OPENCODE_MAJOR="$2" ;;
         --project-dir) PROJECT_DIR="$2" ;;
+        --check-go-project) CHECK_GO_PROJECT="$2" ;;
       esac
       shift 2 ;;
     *) printf 'Opcao desconhecida: %s\n' "$1" >&2; exit 2 ;;
@@ -109,7 +115,7 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
-for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
+for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}" "${CHECK_GO_PROJECT:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
 if [[ "$DRY_RUN" == 1 ]]; then
@@ -127,7 +133,9 @@ Simulacao de Serena: sem alteracoes e sem acesso a rede.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Serena depois da instalacao.
-Somente este addon sera instalado; uv/Python sao pre-requisitos instalados pelo proprio script.
+  • Preparar Go/gopls: $WITH_GO; teste Go: ${CHECK_GO_PROJECT:-nao solicitado}.
+  • Registrar instrucoes de uso do Serena no AGENTS.md do Codex.
+Somente este addon sera instalado; uv/Python e Go/gopls opcionais sao pre-requisitos.
 EOF
   exit 0
 fi
@@ -602,6 +610,80 @@ new_client_rules() {
 }
 
 
+prepare_go() {
+  local go_version go_archive go_sha go_root
+  local -a go_asset
+  if ! command -v go >/dev/null 2>&1; then
+    for binary in go gofmt; do
+      [[ ! -e "$LOCAL_BIN/$binary" && ! -L "$LOCAL_BIN/$binary" ]] || die "Conflito: $LOCAL_BIN/$binary ja existe."
+    done
+    curl --fail --silent --show-error --location --retry 3 'https://go.dev/dl/?mode=json' -o "$TMP_WORKDIR/go-releases.json"
+    python3 - "$TMP_WORKDIR/go-releases.json" "$(uname -m)" > "$TMP_WORKDIR/go-asset.txt" <<'PYGO'
+import json,re,sys
+arch={'x86_64':'amd64','amd64':'amd64','aarch64':'arm64','arm64':'arm64'}[sys.argv[2]]
+releases=json.load(open(sys.argv[1]))
+release=next(r for r in releases if r['stable'])
+f=next(f for f in release['files'] if f['os']=='linux' and f['arch']==arch and f['kind']=='archive')
+assert re.fullmatch(r'go[0-9]+\.[0-9]+\.[0-9]+',f['version'])
+assert f['filename']==f['version']+'.linux-'+arch+'.tar.gz'
+assert re.fullmatch(r'[0-9a-f]{64}',f['sha256'])
+print(f['version']); print(f['filename']); print(f['sha256'])
+PYGO
+    mapfile -t go_asset < "$TMP_WORKDIR/go-asset.txt"
+    go_version="${go_asset[0]}"; go_archive="${go_asset[1]}"; go_sha="${go_asset[2]}"
+    go_root="$HOME_DIR/.local/lib/go/$go_version"
+    [[ ! -e "$go_root" && ! -L "$go_root" ]] || die "Destino Go ja existe: $go_root; revise antes de instalar."
+    curl --fail --silent --show-error --location --retry 3 "https://go.dev/dl/$go_archive" -o "$TMP_WORKDIR/go.tar.gz"
+    printf '%s  %s\n' "$go_sha" "$TMP_WORKDIR/go.tar.gz" | sha256sum --check --status
+    "$UV_TOOL_DIR/serena-agent/bin/python" - "$TMP_WORKDIR/go.tar.gz" "$TMP_WORKDIR/go-unpack" <<'PYGO'
+import sys,tarfile
+with tarfile.open(sys.argv[1]) as archive:
+    archive.extractall(sys.argv[2],filter='data')
+PYGO
+    mkdir -p "${go_root%/*}"
+    mv "$TMP_WORKDIR/go-unpack/go" "$go_root"
+    ln -s "$go_root/bin/go" "$LOCAL_BIN/go"
+    ln -s "$go_root/bin/gofmt" "$LOCAL_BIN/gofmt"
+  fi
+  go version
+  if ! command -v gopls >/dev/null 2>&1; then
+    [[ ! -e "$LOCAL_BIN/gopls" && ! -L "$LOCAL_BIN/gopls" ]] || die "Conflito: $LOCAL_BIN/gopls ja existe."
+    # Compilacao sequencial evita esgotar memoria em maquinas pequenas.
+    GOMAXPROCS=2 GOBIN="$LOCAL_BIN" go install -p=1 golang.org/x/tools/gopls@latest
+  fi
+  gopls version
+}
+
+check_go_project() {
+  [[ -d "$CHECK_GO_PROJECT" && -f "$CHECK_GO_PROJECT/go.mod" ]] || die 'O teste requer um projeto Go com go.mod na raiz.'
+  command -v go >/dev/null 2>&1 && command -v gopls >/dev/null 2>&1 || die 'Go/gopls ausentes; use --with-go ou instale-os antes do teste.'
+  "$UV_TOOL_DIR/serena-agent/bin/python" - "$LOCAL_BIN/serena" "$CHECK_GO_PROJECT" <<'PYCHECK'
+import asyncio,json,os,pathlib,sys,tempfile
+from mcp import ClientSession,StdioServerParameters
+from mcp.client.stdio import stdio_client
+async def check():
+    root=pathlib.Path(sys.argv[2]).resolve()
+    files=sorted(p for p in root.rglob('*.go') if not any(x in {'.git','vendor','node_modules'} for x in p.relative_to(root).parts))
+    if not files: raise RuntimeError('Nenhum arquivo Go encontrado para o teste')
+    args=['start-mcp-server','--context','codex','--project',str(root),'--add-mode','no-memories','--enable-web-dashboard','False','--open-web-dashboard','False']
+    params=StdioServerParameters(command=sys.argv[1],args=args,env=dict(os.environ,GOMAXPROCS='2'))
+    with tempfile.TemporaryFile(mode='w+') as log:
+        async with stdio_client(params,errlog=log) as (read,write):
+            async with ClientSession(read,write) as session:
+                await session.initialize()
+                result=await session.call_tool('get_symbols_overview',{'relative_path':str(files[0].relative_to(root)),'depth':0,'max_answer_chars':10000})
+                text='\n'.join(c.text for c in result.content if hasattr(c,'text'))
+                if result.isError or 'Error executing tool' in text: raise RuntimeError(text)
+                symbols=json.loads(text)
+                if not isinstance(symbols,dict) or not any(symbols.values()): raise RuntimeError('LSP nao retornou simbolos; revise o arquivo/projeto')
+                print('Serena: leitura real de simbolos confirmada em',files[0])
+try:
+    asyncio.run(asyncio.wait_for(check(),timeout=180))
+except Exception as exc:
+    raise SystemExit('Falha na validacao Serena/Go: '+str(exc))
+PYCHECK
+}
+
 all_mcp check serena "$LOCAL_BIN/serena"
 UV_TAG="$(download_verified_release_asset 'astral-sh/uv' "$UV_ASSET" "$TMP_WORKDIR/uv.tar.gz")"
 extract_archive_binary "$TMP_WORKDIR/uv.tar.gz" uv "$TMP_WORKDIR/uv"
@@ -618,9 +700,16 @@ export UV_CACHE_DIR="$HOME_DIR/.cache/uv"
 for flag in --context --project-from-cwd --add-mode; do
   grep -Fq -- "$flag" "$TMP_WORKDIR/serena-help.txt" || die "Serena nao documenta $flag; servidor nao registrado."
 done
+if [[ "$WITH_GO" == 1 ]]; then prepare_go; fi
+cat > "$TMP_WORKDIR/serena-rules.md" <<'RULES'
+## Serena
+Antes de tarefas de codigo, leia as instrucoes iniciais do Serena. Priorize suas ferramentas de simbolos e referencias para explorar e modificar codigo. Se o backend falhar, informe a falha; registro MCP nao comprova funcionamento do analisador.
+RULES
+if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/serena-rules.md"; fi
 all_mcp apply serena "$LOCAL_BIN/serena"
 "$LOCAL_BIN/serena" --version
 all_mcp verify serena "$LOCAL_BIN/serena"
+if [[ -n "$CHECK_GO_PROJECT" ]]; then check_go_project; fi
 
 printf '\nConcluido: Serena instalado/configurado para o usuario.\n'
 printf 'Backup: %s\nLog: %s\n' "$BACKUP_DIR" "$LOG_FILE"
