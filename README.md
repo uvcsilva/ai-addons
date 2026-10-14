@@ -84,7 +84,8 @@ ao terminal que o iniciou; por isso os exemplos incluem `export PATH=...`.
 - Ubuntu Linux, Bash 4+, usuário normal, sem executar os scripts com `sudo`.
 - x86_64 ou aarch64/arm64 para os instaladores de binários.
 - Instale e autentique os clientes que pretende usar. Apenas Claude/Codex selecionados
-  exigem seus CLIs no PATH; a integração de Cline/VS Code pode ser feita sem CLI.
+  exigem seus CLIs no PATH, exceto no instalador ccusage; a integração de Cline/VS Code
+  pode ser feita sem CLI.
 - Feche os agentes e editores durante a alteração. O bloqueio protege apenas contra
   outros instaladores deste pacote, não contra edições externas.
 - Use versões atuais dos clientes. Claude/Codex precisam oferecer MCP e plugins.
@@ -323,6 +324,11 @@ Os scripts não apagam memórias existentes nem desinstalam ferramentas anterior
 A exclusividade depende de resolver esses conflitos e desativar a memória da conta.
 Históricos de conversa, logs e retomada de sessão dos clientes não são removidos.
 
+Ao terminar, o instalador confere os ajustes de memória nativa apenas nos clientes
+selecionados: Claude e Codex após o setup oficial, e VS Code após editar `settings.json`.
+Essa conferência local não valida as configurações da conta GitHub nem overrides
+de workspace ou perfil.
+
 Serena é registrado sem memórias pelo próprio script Serena. A verificação automática
 confirma o argumento no registro; após iniciar o servidor, confira se as ferramentas
 de memória e onboarding excluídas pelo modo estão ausentes.
@@ -340,12 +346,18 @@ Reinicie os clientes e faça a conferência no ambiente Ubuntu:
    Claude/Codex/OpenCode/Copilot CLI oferecem listagem de MCP; nos editores use o painel
    MCP. No VS Code, confirme que as instruções de usuário estão sendo carregadas.
    No Claude, os instaladores do Context7 e do Serena garantem `env.MCP_TIMEOUT` de
-   pelo menos `60000` no `~/.claude/settings.json`, porque a primeira partida do
-   Node/`uv` pode passar dos 30s padrão. Um valor maior já definido é mantido.
+   pelo menos `60000` milissegundos no `settings.json` de `CLAUDE_CONFIG_DIR`
+   (padrão: `~/.claude`), para acomodar a partida a frio do Node/`uv`.
+   Um valor maior já definido é mantido.
 3. Ative o projeto correto no Serena, confira a ausência das ferramentas de memória
    e peça uma leitura de símbolos de um arquivo. Para Go, use também o teste acima;
    um registro MCP válido pode coexistir com falha do servidor de linguagem.
-4. Peça ao agente para abrir uma sessão Engram com o diretório real e recuperar contexto.
+4. Peça ao agente para recuperar contexto com Engram. Nos clientes com setup nativo,
+   siga o ciclo de sessão e a identidade fornecidos pela integração; no Codex, os hooks
+   registram a sessão e o agente não deve chamar `mem_session_start` nem inventar IDs.
+   Nos quatro clientes com MCP + instruções, abra a sessão com o diretório real e use
+   a identidade retornada, conforme o protocolo instalado. Veja o
+   [setup oficial do Engram](https://github.com/Gentleman-Programming/engram/blob/main/docs/AGENT-SETUP.md).
    Para validar persistência, salve uma informação de teste sem dados privados e
    recupere-a em outra sessão/cliente. Exclua o registro de teste depois.
 5. Confira uma consulta de documentação com Context7. No RTK por regras, observe se o
@@ -385,8 +397,11 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
 - Serena usa `uv tool install --upgrade -p 3.13 serena-agent`; ccusage usa `@latest`
   com validação de requisitos de Node pelo npm. Context7 instala `@upstash/context7-mcp@latest`
   em `~/.local` e registra `~/.local/bin/context7-mcp`; a versão só muda ao reexecutar o
-  instalador. Entradas antigas via `npx` criadas pelo instalador são migradas; qualquer
-  outra entrada diferente continua recusada. Plugins nativos usam os marketplaces oficiais.
+  instalador. Ele migra automaticamente a entrada antiga com comando `npx` e argumentos
+  `-y --registry=https://registry.npmjs.org @upstash/context7-mcp`; nos quatro clientes
+  novos, o comando antigo precisa corresponder ao caminho absoluto de `npx` no PATH.
+  Uma entrada diferente continua recusada como conflito. Plugins nativos usam os
+  marketplaces oficiais.
 - Regras Ponytail dos novos clientes são um snapshot incorporado de `AGENTS.md`, commit
   `9b58c1ffb790c075ca32e70a89cf1d80588f4abf`. Consulte a licença no repositório oficial
   do Ponytail listado na seção 10; não há `PONYTAIL-LICENSE.txt` nesta cópia.
@@ -413,8 +428,9 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   e restaure apenas os destinos necessários. Arquivos criados pela execução não têm
   versão anterior. Para plugins/pacotes, use o gerenciador oficial se precisar reverter.
   O backup das pastas de plugins omite `cache/` e `marketplaces/`: são downloads que
-  voltam ao reexecutar o instalador do plugin. A cópia usa `--reflink=auto`, que em
-  btrfs/XFS compartilha blocos com o original e quase não ocupa espaço.
+  voltam ao reexecutar o instalador do plugin. A cópia tenta compartilhar blocos com
+  `--reflink=auto`; quando esse recurso não está disponível, faz uma cópia convencional,
+  conforme o [GNU Coreutils](https://www.gnu.org/s/coreutils/manual/html_node/cp-invocation.html).
 - HTTP limitado pela API, falha de download, dependência ausente ou configuração
   conflitante interrompem o script. Resolva a causa indicada e reexecute.
 
@@ -423,12 +439,18 @@ codebase-memory-mcp ou orquestrador; também não remove instalações anteriore
 
 ### Manutenção de espaço
 
-- Os backups ficam em `~/.local/state/six-addons-installer/backups`, uma pasta por
-  execução, e não são apagados automaticamente. Remova manualmente as pastas antigas
-  que não precisar mais. Em btrfs/XFS a cópia usa reflink e quase não ocupa espaço.
-- O bootstrap remove versões antigas do Node em `~/.local/lib/nodejs` ao trocar de LTS.
-- Os caches do uv (Serena) e do npm crescem com o uso. Para podar sem afetar o que
-  está instalado: `uv cache prune` e `npm cache verify`.
+- Os backups ficam em `${XDG_STATE_HOME:-~/.local/state}/six-addons-installer/backups`,
+  uma pasta por execução, e não são apagados automaticamente. Remova manualmente as
+  pastas antigas que não precisar mais. Reflinks reduzem o espaço inicial quando origem
+  e destino permitem compartilhar blocos; alterações posteriores podem aumentar o uso.
+- O bootstrap remove distribuições antigas `node-v*-linux-*` em `~/.local/lib/nodejs`
+  após selecionar a versão LTS atual. Instalações Node fora dessa pasta são preservadas.
+- Para limpar entradas não utilizadas do cache uv, use `uv cache prune`;
+  ambientes de projeto centralizados também são removidos e recriados quando necessários.
+  Veja a [documentação do uv](https://docs.astral.sh/uv/concepts/cache/).
+- Para verificar a integridade do cache npm e remover dados desnecessários, use
+  `npm cache verify`. Isso não esvazia todo o cache; veja a
+  [documentação do npm](https://docs.npmjs.com/cli/v11/commands/npm-cache/).
 
 ### Recuperar uma instalação interrompida
 
@@ -460,48 +482,43 @@ com sucesso.
 
 ## 9. Validação e limites conhecidos
 
-Na revisão de 11/10/2026, foram realizadas verificações de sintaxe Bash e de diff
-nos scripts alterados. O bootstrap passou por seis cenários simulados: instalação
-padrão, instalação opcional de OpenCode, preservação de OpenCode 2, rejeição de versão
-incompatível, conflito de arquivos antes de `sudo` e recusa de checksum incorreto.
-A reexecução também conferiu que o bloco de PATH não é duplicado.
+Em **14/10/2026**, os sete scripts passaram pela verificação de sintaxe Bash e os
+**17 testes locais** de [tests/test_installers.py](tests/test_installers.py) passaram.
+A suíte cobre instalação Go simulada, checksum, preservação de ferramentas existentes,
+limites de compilação do `gopls`, blocos de instruções, timeout MCP do Claude,
+backups de plugins, memória nativa por cliente, edição JSONC/TOML, migração de MCP
+legado, remoção de versões antigas do Node, helpers compartilhados e `--dry-run`.
 
-O relato de execução em Ubuntu 26.04 arm64 confirmou a conclusão do bootstrap com
-Codex preexistente. A execução do Engram 3.3.2 avançou até as verificações de MCP e
-plugins, mas parou na chamada de ajuda descrita acima. A correção passou pela
-verificação de sintaxe; a conclusão da sequência completa em Ubuntu ainda precisa
-ser confirmada. Esses resultados não comprovam chamadas reais aos modelos ou o
-funcionamento de todos os MCPs; faça a conferência da seção 7.
-
-Esta cópia do repositório não inclui `VALIDACAO.txt`, `validation/` nem
-`SHA256SUMS`. As simulações mencionadas foram executadas fora do repositório.
 Para conferir localmente a sintaxe dos sete scripts sem instalar nada:
 
 ```bash
+(
 for script in install-*-ubuntu.sh; do
-  bash -n "$script" || break
+  bash -n "$script" || exit 1
 done
+)
 ```
 
-Os testes locais das novas opções, checksum, conflitos e preservação dos blocos
-Codex podem ser executados sem rede e sem modificar as configurações reais:
+Os testes exigem **Python 3.11+** (`tomllib`) e podem ser executados sem rede e sem
+modificar as configurações reais:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Esses testes simulam downloads e ferramentas; não substituem a leitura real do
-projeto com `--check-go-project` nem a conferência dos outros MCPs no cliente.
+Esses testes simulam downloads e ferramentas. Esta revisão não reexecutou instalações
+reais nem comprovou chamadas ao modelo ou o funcionamento de todos os MCPs/clientes.
+Faça a conferência da seção 7 e, para projetos Go, use `--check-go-project`.
 
 ## 10. Fontes oficiais
 
-Revisão: 10/10/2026. Referências usadas para formatos e limites de integração:
+Referências para os formatos e limites de integração usados pelos scripts:
 
 - [RTK](https://github.com/rtk-ai/rtk) (incluindo os adaptadores em `src/hooks/init/`).
 - [Go — instalação](https://go.dev/doc/install) e [gopls](https://go.dev/gopls/).
 - [Serena — clientes](https://github.com/oraios/serena/blob/main/docs/02-usage/030_clients.md) e [repositório](https://github.com/oraios/serena).
 - [Engram — setup](https://github.com/Gentleman-Programming/engram/blob/main/docs/AGENT-SETUP.md), [documentação](https://github.com/Gentleman-Programming/engram/blob/main/DOCS.md) e [implementação](https://github.com/Gentleman-Programming/engram/tree/main/internal/setup).
-- [Context7](https://github.com/upstash/context7), [ccusage e fontes suportadas](https://github.com/ryoppippi/ccusage/blob/main/apps/ccusage/README.md).
+- [Context7](https://github.com/upstash/context7), [ccusage e fontes suportadas](https://github.com/ccusage/ccusage/blob/main/README.md).
 - [Ponytail — instalação e portabilidade](https://github.com/DietrichGebert/ponytail/blob/main/INSTALL.md).
 - [Cline MCP](https://docs.cline.bot/mcp/mcp-overview), [Cline regras](https://docs.cline.bot/customization/cline-rules).
 - [OpenCode V1 MCP](https://opencode.ai/docs/mcp-servers/), [V2 MCP](https://dev.opencode.ai/v2/docs/mcp-servers/), [V2 instruções](https://dev.opencode.ai/v2/docs/instructions/).
