@@ -123,6 +123,7 @@ Simulacao de Context7: sem alteracoes e sem acesso a rede.
   Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
   • Exigir Ubuntu, usuario sem sudo e: node, npm, npx, python3, flock.
   • Registrar Context7 via npx nos clientes selecionados.
+  • Registrar instrucoes de uso no AGENTS.md do Codex.
   • Preservar configuracoes existentes e recusar conflitos de servidor.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
@@ -513,6 +514,11 @@ new_client_rules() {
 
 
 all_mcp check context7 npx -y --registry=https://registry.npmjs.org @upstash/context7-mcp
+cat > "$TMP_WORKDIR/context7-rules.md" <<'RULES'
+## Context7
+Consulte o Context7 para documentacao atual ao trabalhar com bibliotecas, frameworks, SDKs, APIs e ferramentas. Resolva o identificador da biblioteca antes de consultar a documentacao, seguindo as instrucoes do servidor. Use conforme a tarefa, sem chamadas artificiais.
+RULES
+if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/context7-rules.md"; fi
 all_mcp apply context7 npx -y --registry=https://registry.npmjs.org @upstash/context7-mcp
 all_mcp verify context7 npx -y --registry=https://registry.npmjs.org @upstash/context7-mcp
 
