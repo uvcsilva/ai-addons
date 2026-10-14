@@ -339,6 +339,9 @@ Reinicie os clientes e faça a conferência no ambiente Ubuntu:
 2. Nos clientes selecionados, confira os servidores `engram`, `serena` e `context7`.
    Claude/Codex/OpenCode/Copilot CLI oferecem listagem de MCP; nos editores use o painel
    MCP. No VS Code, confirme que as instruções de usuário estão sendo carregadas.
+   No Claude, os instaladores do Context7 e do Serena garantem `env.MCP_TIMEOUT` de
+   pelo menos `60000` no `~/.claude/settings.json`, porque a primeira partida via
+   `npx`/`uv` passa dos 30s padrão. Um valor maior já definido é mantido.
 3. Ative o projeto correto no Serena, confira a ausência das ferramentas de memória
    e peça uma leitura de símbolos de um arquivo. Para Go, use também o teste acima;
    um registro MCP válido pode coexistir com falha do servidor de linguagem.

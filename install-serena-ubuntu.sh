@@ -130,6 +130,7 @@ Simulacao de Serena: sem alteracoes e sem acesso a rede.
   • Exigir Ubuntu, usuario sem sudo e: curl, python3, sha256sum, flock.
   • Instalar uv/uvx e Serena isolado com Python 3.13.
   • Registrar MCP com contexto de cada cliente e --add-mode no-memories.
+  • Claude: garantir env.MCP_TIMEOUT >= 60000 no settings.json (partida a frio do uv).
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Serena depois da instalacao.
@@ -394,6 +395,52 @@ ensure_claude_mcp() {
   else
     printf 'Claude MCP ja confere: %s\n' "$name"
   fi
+}
+
+# Cold npx/uv starts can exceed Claude's default 30s MCP connect timeout.
+set_claude_mcp_timeout() {
+  python3 - "$CLAUDE_SETTINGS" <<'PY'
+import json, os, pathlib, stat, sys, tempfile
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Chave JSON duplicada: {key}; revise manualmente")
+        result[key] = value
+    return result
+p = pathlib.Path(sys.argv[1])
+p.parent.mkdir(parents=True, exist_ok=True)
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+    except Exception as exc:
+        raise SystemExit(f"settings.json nao e JSON valido; nenhuma alteracao feita: {exc}")
+    if not isinstance(data, dict):
+        raise SystemExit("settings.json precisa conter um objeto JSON no topo")
+    mode = stat.S_IMODE(p.stat().st_mode)
+else:
+    data, mode = {}, 0o600
+env = data.setdefault("env", {})
+if not isinstance(env, dict):
+    raise SystemExit("env em settings.json nao e um objeto; nenhuma alteracao feita")
+current = str(env.get("MCP_TIMEOUT", ""))
+if current and not (current.isdigit() and int(current) < 60000):
+    print(f"MCP_TIMEOUT do Claude mantido: {current}"); raise SystemExit(0)
+env["MCP_TIMEOUT"] = "60000"
+fd, tmp = tempfile.mkstemp(prefix=".settings.json.", dir=str(p.parent))
+try:
+    os.fchmod(fd, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, p)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+print(f"MCP_TIMEOUT do Claude: 60000 em {p}")
+PY
 }
 
 ensure_codex_mcp() {
@@ -706,6 +753,7 @@ cat > "$TMP_WORKDIR/serena-rules.md" <<'RULES'
 Antes de tarefas de codigo, leia as instrucoes iniciais do Serena. Priorize suas ferramentas de simbolos e referencias para explorar e modificar codigo. Se o backend falhar, informe a falha; registro MCP nao comprova funcionamento do analisador.
 RULES
 if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/serena-rules.md"; fi
+if selected claude; then set_claude_mcp_timeout; fi
 all_mcp apply serena "$LOCAL_BIN/serena"
 "$LOCAL_BIN/serena" --version
 all_mcp verify serena "$LOCAL_BIN/serena"

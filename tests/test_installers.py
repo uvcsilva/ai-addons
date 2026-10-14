@@ -138,6 +138,23 @@ class InstallersTest(unittest.TestCase):
                 self.assertIn("Updated rule", target.read_text())
                 self.assertNotIn("Use " + addon, target.read_text())
 
+    def test_claude_mcp_timeout_raises_but_never_lowers(self):
+        settings = self.base / "settings.json"
+        for script in ("install-serena-ubuntu.sh", "install-context7-ubuntu.sh"):
+            code = (f"CLAUDE_SETTINGS={shlex.quote(str(settings))}\n"
+                    + function(script, "set_claude_mcp_timeout") + "\nset_claude_mcp_timeout\n")
+            for before, after in [(None, "60000"), ({"MCP_TIMEOUT": "30000"}, "60000"),
+                                  ({"MCP_TIMEOUT": "90000"}, "90000")]:
+                with self.subTest(script=script, before=before):
+                    settings.write_text(json.dumps({"model": "x", **({"env": before} if before else {})}))
+                    self.run_shell(code)
+                    data = json.loads(settings.read_text())
+                    self.assertEqual(data["env"]["MCP_TIMEOUT"], after)
+                    self.assertEqual(data["model"], "x")
+            settings.write_text('{"env": []}')
+            self.assertNotEqual(self.run_shell(code, check=False).returncode, 0)
+            self.assertEqual(settings.read_text(), '{"env": []}')
+
     def test_dry_run_has_no_files(self):
         home = self.base / "empty-home"
         home.mkdir()
