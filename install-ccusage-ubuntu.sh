@@ -203,7 +203,7 @@ backup_path() {
   safe="$(printf '%s' "$path" | sed 's#/#_#g; s/[^A-Za-z0-9_.-]/_/g')"
   destination="$BACKUP_DIR/$safe"
   [[ ! -e "$destination" && ! -L "$destination" ]] || return 0
-  cp -a -- "$path" "$destination"
+  cp -a --reflink=auto -- "$path" "$destination"
   printf 'Backup: %s -> %s\n' "$path" "$destination"
 }
 
@@ -213,16 +213,24 @@ assert_regular_or_absent() {
   [[ ! -e "$path" || -f "$path" ]] || die "Caminho nao e arquivo regular: $path"
 }
 
+backup_plugins_dir() {
+  local entry
+  # cache/ and marketplaces/ are re-downloaded by the plugin CLIs; skip their bulk.
+  for entry in "$1"/*; do
+    case "${entry##*/}" in cache|marketplaces) ;; *) backup_path "$entry" ;; esac
+  done
+}
+
 if [[ "$ADDON" != ccusage ]]; then
 
 if selected claude; then
   for path in "$CLAUDE_SETTINGS" "$CLAUDE_JSON" "$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/RTK.md" "$CLAUDE_DIR/hooks/rtk-rewrite.sh" "$CLAUDE_DIR/hooks/.rtk-hook.sha256"; do assert_regular_or_absent "$path"; backup_path "$path"; done
-  backup_path "$CLAUDE_DIR/plugins"
+  backup_plugins_dir "$CLAUDE_DIR/plugins"
 fi
 if selected codex; then
   for path in "$CODEX_CONFIG" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md" "$CODEX_DIR/RTK.md" "$CODEX_DIR/engram-instructions.md" "$CODEX_DIR/engram-compact-prompt.md"; do assert_regular_or_absent "$path"; backup_path "$path"; done
-  backup_path "$CODEX_DIR/plugins"
-  backup_path "$HOME_DIR/.agents/plugins"
+  backup_plugins_dir "$CODEX_DIR/plugins"
+  backup_plugins_dir "$HOME_DIR/.agents/plugins"
 fi
 
 fi

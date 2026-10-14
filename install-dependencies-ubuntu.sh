@@ -23,6 +23,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+prune_old_node() {
+  local dir
+  [[ -n "$NODE_ROOT" && -n "$NODE_DIST" ]] || die 'NODE_ROOT/NODE_DIST vazios; nada removido.'
+  for dir in "$NODE_ROOT"/node-v*-linux-*; do
+    [[ -d "$dir" && ! -L "$dir" && "${dir##*/}" != "$NODE_DIST" ]] || continue
+    rm -rf -- "$dir"
+    printf 'Node antigo removido: %s\n' "$dir"
+  done
+}
+
 usage() {
   cat <<EOF
 Uso: bash $SCRIPT_NAME [--with-opencode]
@@ -139,6 +149,7 @@ PY
 fi
 
 ln -sfn "$NODE_DIST" "$NODE_ROOT/current"
+prune_old_node
 for binary in node npm npx; do
   link="$LOCAL_BIN/$binary"
   if [[ ! -L "$link" ]]; then

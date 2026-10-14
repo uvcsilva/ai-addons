@@ -18,7 +18,7 @@ de preparação não participa desse bloqueio. Execute todos os scripts um por v
 | RTK | Hooks globais | Regras | Regras | Regras | Regras |
 | Serena | MCP, contextos próprios | MCP, contexto `ide` | MCP, contexto `ide` | MCP, `copilot-cli` | MCP, `vscode` |
 | Engram | MCP + setup/plugin oficial | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções |
-| Context7 | MCP via npx | MCP via npx | MCP via npx | MCP via npx | MCP via npx |
+| Context7 | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) |
 | ccusage | Relatórios locais | Sem fonte Cline documentada | Relatórios locais | Relatórios locais | Sem fonte da extensão documentada |
 | Ponytail | Plugin oficial | Regras oficiais | Regras oficiais | Regras oficiais | Regras oficiais |
 
@@ -94,7 +94,7 @@ ao terminal que o iniciou; por isso os exemplos incluem `export PATH=...`.
 | RTK | curl, Python 3, sha256sum, flock |
 | Serena | curl, Python 3, sha256sum, flock |
 | Engram | curl, git, jq, Python 3, sha256sum, flock |
-| Context7 | Node.js, npm, npx, Python 3, flock |
+| Context7 | Node.js, npm, Python 3, flock |
 | ccusage | Node.js, npm, Python 3, flock |
 | Ponytail | git, Node.js, Python 3, flock |
 
@@ -116,7 +116,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Persista a linha no arquivo adequado do seu shell, sem duplicá-la. Node também
 precisa estar no PATH dos processos de editor e hooks. Mesmo usando um caminho
-absoluto para `npx` nos novos clientes, o processo precisa conseguir localizar Node.
+absoluto para `context7-mcp` nos clientes, o processo precisa conseguir localizar Node.
 
 ## 3. Clientes, caminhos e opções
 
@@ -340,8 +340,8 @@ Reinicie os clientes e faça a conferência no ambiente Ubuntu:
    Claude/Codex/OpenCode/Copilot CLI oferecem listagem de MCP; nos editores use o painel
    MCP. No VS Code, confirme que as instruções de usuário estão sendo carregadas.
    No Claude, os instaladores do Context7 e do Serena garantem `env.MCP_TIMEOUT` de
-   pelo menos `60000` no `~/.claude/settings.json`, porque a primeira partida via
-   `npx`/`uv` passa dos 30s padrão. Um valor maior já definido é mantido.
+   pelo menos `60000` no `~/.claude/settings.json`, porque a primeira partida do
+   Node/`uv` pode passar dos 30s padrão. Um valor maior já definido é mantido.
 3. Ative o projeto correto no Serena, confira a ausência das ferramentas de memória
    e peça uma leitura de símbolos de um arquivo. Para Go, use também o teste acima;
    um registro MCP válido pode coexistir com falha do servidor de linguagem.
@@ -383,8 +383,10 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   se ausente; com `--with-opencode`, instala `opencode-ai@1` somente se ausente.
   Reexecutar o bootstrap pode atualizar o Node LTS, mas preserva os clientes existentes.
 - Serena usa `uv tool install --upgrade -p 3.13 serena-agent`; ccusage usa `@latest`
-  com validação de requisitos de Node pelo npm. Context7 usa o pacote oficial via npx,
-  sem versão fixa, resolvido ao iniciar. Plugins nativos usam os marketplaces oficiais.
+  com validação de requisitos de Node pelo npm. Context7 instala `@upstash/context7-mcp@latest`
+  em `~/.local` e registra `~/.local/bin/context7-mcp`; a versão só muda ao reexecutar o
+  instalador. Entradas antigas via `npx` criadas pelo instalador são migradas; qualquer
+  outra entrada diferente continua recusada. Plugins nativos usam os marketplaces oficiais.
 - Regras Ponytail dos novos clientes são um snapshot incorporado de `AGENTS.md`, commit
   `9b58c1ffb790c075ca32e70a89cf1d80588f4abf`. Consulte a licença no repositório oficial
   do Ponytail listado na seção 10; não há `PONYTAIL-LICENSE.txt` nesta cópia.
@@ -410,11 +412,23 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
 - Para restaurar, feche os clientes, compare os arquivos com o backup indicado no log
   e restaure apenas os destinos necessários. Arquivos criados pela execução não têm
   versão anterior. Para plugins/pacotes, use o gerenciador oficial se precisar reverter.
+  O backup das pastas de plugins omite `cache/` e `marketplaces/`: são downloads que
+  voltam ao reexecutar o instalador do plugin. A cópia usa `--reflink=auto`, que em
+  btrfs/XFS compartilha blocos com o original e quase não ocupa espaço.
 - HTTP limitado pela API, falha de download, dependência ausente ou configuração
   conflitante interrompem o script. Resolva a causa indicada e reexecute.
 
 O pacote não adiciona Headroom, OpenSpec, Beads, Context Mode, jCodeMunch,
 codebase-memory-mcp ou orquestrador; também não remove instalações anteriores deles.
+
+### Manutenção de espaço
+
+- Os backups ficam em `~/.local/state/six-addons-installer/backups`, uma pasta por
+  execução, e não são apagados automaticamente. Remova manualmente as pastas antigas
+  que não precisar mais. Em btrfs/XFS a cópia usa reflink e quase não ocupa espaço.
+- O bootstrap remove versões antigas do Node em `~/.local/lib/nodejs` ao trocar de LTS.
+- Os caches do uv (Serena) e do npm crescem com o uso. Para podar sem afetar o que
+  está instalado: `uv cache prune` e `npm cache verify`.
 
 ### Recuperar uma instalação interrompida
 

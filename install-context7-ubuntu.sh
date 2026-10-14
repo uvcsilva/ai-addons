@@ -48,9 +48,10 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
 OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
 RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
-Pre-requisitos: node, npm, npx, python3, flock.
+Pre-requisitos: node, npm, python3, flock.
 Nao usa sudo. Requer apenas os clientes selecionados; veja limites no README.
-O MCP usa o pacote oficial @upstash/context7-mcp; npx resolve a versao ao iniciar.
+O MCP usa o pacote oficial @upstash/context7-mcp, instalado em ~/.local pelo npm.
+Entradas antigas via npx criadas por este instalador sao migradas.
 Backup e log privados: \${XDG_STATE_HOME:-~/.local/state}/six-addons-installer.
 Os seis scripts compartilham um bloqueio; execute um de cada vez.
 Conflitos existentes sao informados, sem sobrescrever entradas MCP diferentes.
@@ -121,9 +122,10 @@ Simulacao de Context7: sem alteracoes e sem acesso a rede.
   Copilot CLI: $COPILOT_DIR
   VS Code User: $VSCODE_USER_DIR
   Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
-  • Exigir Ubuntu, usuario sem sudo e: node, npm, npx, python3, flock.
-  • Registrar Context7 via npx nos clientes selecionados.
-  • Claude: garantir env.MCP_TIMEOUT >= 60000 no settings.json (partida a frio do npx).
+  • Exigir Ubuntu, usuario sem sudo e: node, npm, python3, flock.
+  • Instalar @upstash/context7-mcp em ~/.local via npm (versao fixa ate reexecutar).
+  • Registrar ~/.local/bin/context7-mcp nos clientes; migrar entrada npx antiga identica.
+  • Claude: garantir env.MCP_TIMEOUT >= 60000 no settings.json (partida a frio do MCP).
   • Registrar instrucoes de uso no AGENTS.md do Codex.
   • Preservar configuracoes existentes e recusar conflitos de servidor.
   • Bloquear execucao simultanea dos seis instaladores.
@@ -147,7 +149,7 @@ done
 
 export PATH="$LOCAL_BIN:$PATH"
 MISSING=()
-for cmd in node npm npx python3 flock; do
+for cmd in node npm python3 flock; do
   command -v "$cmd" >/dev/null 2>&1 || MISSING+=("$cmd")
 done
 if [[ "$ADDON" != ccusage ]]; then
@@ -205,7 +207,7 @@ backup_path() {
   safe="$(printf '%s' "$path" | sed 's#/#_#g; s/[^A-Za-z0-9_.-]/_/g')"
   destination="$BACKUP_DIR/$safe"
   [[ ! -e "$destination" && ! -L "$destination" ]] || return 0
-  cp -a -- "$path" "$destination"
+  cp -a --reflink=auto -- "$path" "$destination"
   printf 'Backup: %s -> %s\n' "$path" "$destination"
 }
 
@@ -215,16 +217,24 @@ assert_regular_or_absent() {
   [[ ! -e "$path" || -f "$path" ]] || die "Caminho nao e arquivo regular: $path"
 }
 
+backup_plugins_dir() {
+  local entry
+  # cache/ and marketplaces/ are re-downloaded by the plugin CLIs; skip their bulk.
+  for entry in "$1"/*; do
+    case "${entry##*/}" in cache|marketplaces) ;; *) backup_path "$entry" ;; esac
+  done
+}
+
 if [[ "$ADDON" != ccusage ]]; then
 
 if selected claude; then
   for path in "$CLAUDE_SETTINGS" "$CLAUDE_JSON" "$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/RTK.md" "$CLAUDE_DIR/hooks/rtk-rewrite.sh" "$CLAUDE_DIR/hooks/.rtk-hook.sha256"; do assert_regular_or_absent "$path"; backup_path "$path"; done
-  backup_path "$CLAUDE_DIR/plugins"
+  backup_plugins_dir "$CLAUDE_DIR/plugins"
 fi
 if selected codex; then
   for path in "$CODEX_CONFIG" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md" "$CODEX_DIR/RTK.md" "$CODEX_DIR/engram-instructions.md" "$CODEX_DIR/engram-compact-prompt.md"; do assert_regular_or_absent "$path"; backup_path "$path"; done
-  backup_path "$CODEX_DIR/plugins"
-  backup_path "$HOME_DIR/.agents/plugins"
+  backup_plugins_dir "$CODEX_DIR/plugins"
+  backup_plugins_dir "$HOME_DIR/.agents/plugins"
 fi
 
 fi
@@ -233,7 +243,7 @@ fi
 claude_mcp_state() {
   local name="$1" command_name="$2"; shift 2
   python3 - "$CLAUDE_JSON" "$name" "$command_name" "$@" <<'PY'
-import json, pathlib, sys
+import json, os, pathlib, sys
 
 def unique_object(pairs):
     result = {}
@@ -244,6 +254,9 @@ def unique_object(pairs):
     return result
 path, name, command = sys.argv[1:4]
 args = sys.argv[4:]
+legacy = json.loads(os.environ.get("LEGACY_MCP_ARGV") or "[]")
+if not isinstance(legacy, list) or not all(isinstance(x, str) for x in legacy):
+    raise SystemExit("LEGACY_MCP_ARGV precisa ser lista JSON de strings")
 p = pathlib.Path(path)
 if not p.exists():
     print("absent"); raise SystemExit(0)
@@ -261,8 +274,12 @@ if name not in servers:
 server = servers[name]
 if not isinstance(server, dict):
     raise SystemExit(f"Entrada Claude MCP {name} nao e objeto")
-if server.get("command") == command and server.get("args", []) == args and server.get("type", "stdio") == "stdio":
+def same(cmd, argv):
+    return server.get("command") == cmd and server.get("args", []) == argv and server.get("type", "stdio") == "stdio"
+if same(command, args):
     print("matching")
+elif legacy and same(legacy[0], legacy[1:]):
+    print("legacy")
 else:
     raise SystemExit(f"Conflito: Claude MCP {name} ja existe com outra configuracao; nenhuma entrada foi sobrescrita")
 PY
@@ -272,9 +289,12 @@ codex_mcp_state() {
   local name="$1" command_name="$2"; shift 2
   codex mcp list --json > "$TMP_WORKDIR/codex-mcp.json" || return
   python3 - "$TMP_WORKDIR/codex-mcp.json" "$name" "$command_name" "$@" <<'PY'
-import json, pathlib, sys
+import json, os, pathlib, sys
 path, name, command = sys.argv[1:4]
 args = sys.argv[4:]
+legacy = json.loads(os.environ.get("LEGACY_MCP_ARGV") or "[]")
+if not isinstance(legacy, list) or not all(isinstance(x, str) for x in legacy):
+    raise SystemExit("LEGACY_MCP_ARGV precisa ser lista JSON de strings")
 entries = json.loads(pathlib.Path(path).read_text())
 if not isinstance(entries, list):
     raise SystemExit("Formato de codex mcp list --json nao reconhecido")
@@ -285,9 +305,13 @@ if len(hits) != 1:
     raise SystemExit(f"Conflito: mais de uma entrada MCP Codex {name}")
 server = hits[0]
 transport = server.get("transport", {})
-if (transport.get("type") == "stdio" and transport.get("command") == command
-        and transport.get("args", []) == args and server.get("enabled") is True):
+def same(cmd, argv):
+    return (transport.get("type") == "stdio" and transport.get("command") == cmd
+            and transport.get("args", []) == argv and server.get("enabled") is True)
+if same(command, args):
     print("matching")
+elif legacy and same(legacy[0], legacy[1:]):
+    print("legacy")
 else:
     raise SystemExit(f"Conflito: MCP Codex {name} diferente ou desabilitado; nenhuma entrada sobrescrita")
 PY
@@ -296,17 +320,19 @@ PY
 ensure_claude_mcp() {
   local name="$1" command_name="$2" state; shift 2
   state="$(claude_mcp_state "$name" "$command_name" "$@")" || die "Nao foi possivel validar a entrada Claude MCP $name."
-  if [[ "$state" == absent ]]; then
+  if [[ "$state" == absent || "$state" == legacy ]]; then
+    # Only the exact entry an older installer wrote is replaced (LEGACY_MCP_ARGV).
+    if [[ "$state" == legacy ]]; then claude mcp remove --scope user "$name"; fi
     claude mcp add --transport stdio --scope user "$name" -- "$command_name" "$@"
-    state="$(claude_mcp_state "$name" "$command_name" "$@")" || die "Claude nao registrou $name como esperado."
-    [[ "$state" == matching ]] || die "Claude nao registrou $name como esperado."
-    printf 'Claude MCP registrado: %s\n' "$name"
+    [[ "$state" == absent ]] && state=registrado || state=migrado
+    [[ "$(claude_mcp_state "$name" "$command_name" "$@")" == matching ]] || die "Claude nao registrou $name como esperado."
+    printf 'Claude MCP %s: %s\n' "$state" "$name"
   else
     printf 'Claude MCP ja confere: %s\n' "$name"
   fi
 }
 
-# Cold npx/uv starts can exceed Claude's default 30s MCP connect timeout.
+# Cold MCP server starts (node, uv) can exceed Claude's default 30s connect timeout.
 set_claude_mcp_timeout() {
   python3 - "$CLAUDE_SETTINGS" <<'PY'
 import json, os, pathlib, stat, sys, tempfile
@@ -355,11 +381,13 @@ PY
 ensure_codex_mcp() {
   local name="$1" command_name="$2" state; shift 2
   state="$(codex_mcp_state "$name" "$command_name" "$@")" || die "Nao foi possivel validar a entrada Codex MCP $name."
-  if [[ "$state" == absent ]]; then
+  if [[ "$state" == absent || "$state" == legacy ]]; then
+    # Only the exact entry an older installer wrote is replaced (LEGACY_MCP_ARGV).
+    if [[ "$state" == legacy ]]; then codex mcp remove "$name"; fi
     codex mcp add "$name" -- "$command_name" "$@"
-    state="$(codex_mcp_state "$name" "$command_name" "$@")" || die "Codex nao registrou $name como esperado."
-    [[ "$state" == matching ]] || die "Codex nao registrou $name como esperado."
-    printf 'Codex MCP registrado: %s\n' "$name"
+    [[ "$state" == absent ]] && state=registrado || state=migrado
+    [[ "$(codex_mcp_state "$name" "$command_name" "$@")" == matching ]] || die "Codex nao registrou $name como esperado."
+    printf 'Codex MCP %s: %s\n' "$state" "$name"
   else
     printf 'Codex MCP ja confere: %s\n' "$name"
   fi
@@ -370,7 +398,7 @@ edit_client_json() {
   assert_regular_or_absent "$file"
   [[ "$mode" != apply ]] || backup_path "$file"
   python3 - "$mode" "$file" "$kind" "$name" "$OPENCODE_MAJOR" "$@" <<'PY'
-import json, os, pathlib, re, stat, sys, tempfile
+import json, os, pathlib, re, shutil, stat, sys, tempfile
 mode, filename, kind, name, major = sys.argv[1:6]
 args = sys.argv[6:]
 p = pathlib.Path(filename)
@@ -413,23 +441,29 @@ def parse(text):
     root=value(())
     if i!=len(tokens) or not isinstance(root,dict): raise ValueError('Raiz JSONC deve ser objeto unico')
     return root,objects,spans
-if kind=='memory':
-    changes=[((key,),False,True) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
-else:
-    command=args[0]; argv=args[1:]
-    entry={'command':command,'args':argv}
-    if kind=='cline':
-        entry.update(disabled=False,autoApprove=[]); path=('mcpServers',name)
-    elif kind=='copilot':
-        entry.update(type='local',tools=['*']); path=('mcpServers',name)
-    elif kind=='vscode':
-        entry.update(type='stdio'); path=('servers',name)
-    elif kind=='opencode':
+def build(command, argv):
+    if kind=='opencode':
         entry={'type':'local','command':[command]+argv}
         entry.update({'disabled':False} if major=='2' else {'enabled':True})
-        path=('mcp','servers',name) if major=='2' else ('mcp',name)
+        return entry
+    entry={'command':command,'args':argv}
+    if kind=='cline': entry.update(disabled=False,autoApprove=[])
+    elif kind=='copilot': entry.update(type='local',tools=['*'])
+    elif kind=='vscode': entry.update(type='stdio')
     else: raise ValueError('Cliente desconhecido')
-    changes=[(path,entry,False)]
+    return entry
+if kind=='memory':
+    changes=[((key,),False,True,None) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
+else:
+    paths={'cline':('mcpServers',name),'copilot':('mcpServers',name),'vscode':('servers',name),
+           'opencode':('mcp','servers',name) if major=='2' else ('mcp',name)}
+    if kind not in paths: raise ValueError('Cliente desconhecido')
+    legacy=json.loads(os.environ.get('LEGACY_MCP_ARGV') or '[]')
+    if not isinstance(legacy,list) or not all(isinstance(x,str) for x in legacy):
+        raise ValueError('LEGACY_MCP_ARGV precisa ser lista JSON de strings')
+    # new_client_mcp stores npx by absolute path, so the legacy entry did too.
+    if legacy[:1]==['npx']: legacy[0]=shutil.which('npx') or 'npx'
+    changes=[(paths[kind],build(args[0],args[1:]),False,build(legacy[0],legacy[1:]) if legacy else None)]
 if kind=='opencode':
     root,_,_=parse(original)
     current=root.get('mcp',{})
@@ -438,7 +472,7 @@ if kind=='opencode':
     if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
         raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
 text=original
-for path,expected,replace in changes:
+for path,expected,replace,legacy in changes:
     root,objects,spans=parse(text)
     node=root
     for depth,key in enumerate(path):
@@ -451,12 +485,12 @@ for path,expected,replace in changes:
             text=text[:close]+insertion+text[close:]; break
         if depth==len(path)-1:
             if node[key]!=expected:
-                if not replace: raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                if not replace and (legacy is None or node[key]!=legacy): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
                 a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
         node=node[key]
 # Verify all resulting settings before committing the file.
 root,_,_=parse(text)
-for path,expected,_ in changes:
+for path,expected,*_ in changes:
     node=root
     for key in path: node=node[key]
     if node!=expected: raise ValueError('Verificacao JSONC falhou')
@@ -560,15 +594,19 @@ new_client_rules() {
 }
 
 
-all_mcp check context7 npx -y --registry=https://registry.npmjs.org @upstash/context7-mcp
+# Entry written by installers before the local npm install; migrated if identical.
+export LEGACY_MCP_ARGV='["npx","-y","--registry=https://registry.npmjs.org","@upstash/context7-mcp"]'
+all_mcp check context7 "$LOCAL_BIN/context7-mcp"
+npm install --global --prefix "$HOME_DIR/.local" --registry=https://registry.npmjs.org --engine-strict=true @upstash/context7-mcp@latest
+[[ -x "$LOCAL_BIN/context7-mcp" ]] || die 'context7-mcp nao apareceu em ~/.local/bin.'
 cat > "$TMP_WORKDIR/context7-rules.md" <<'RULES'
 ## Context7
 Consulte o Context7 para documentacao atual ao trabalhar com bibliotecas, frameworks, SDKs, APIs e ferramentas. Resolva o identificador da biblioteca antes de consultar a documentacao, seguindo as instrucoes do servidor. Use conforme a tarefa, sem chamadas artificiais.
 RULES
 if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/context7-rules.md"; fi
 if selected claude; then set_claude_mcp_timeout; fi
-all_mcp apply context7 npx -y --registry=https://registry.npmjs.org @upstash/context7-mcp
-all_mcp verify context7 npx -y --registry=https://registry.npmjs.org @upstash/context7-mcp
+all_mcp apply context7 "$LOCAL_BIN/context7-mcp"
+all_mcp verify context7 "$LOCAL_BIN/context7-mcp"
 
 printf '\nConcluido: Context7 instalado/configurado para o usuario.\n'
 printf 'Backup: %s\nLog: %s\n' "$BACKUP_DIR" "$LOG_FILE"

@@ -203,7 +203,7 @@ backup_path() {
   safe="$(printf '%s' "$path" | sed 's#/#_#g; s/[^A-Za-z0-9_.-]/_/g')"
   destination="$BACKUP_DIR/$safe"
   [[ ! -e "$destination" && ! -L "$destination" ]] || return 0
-  cp -a -- "$path" "$destination"
+  cp -a --reflink=auto -- "$path" "$destination"
   printf 'Backup: %s -> %s\n' "$path" "$destination"
 }
 
@@ -213,16 +213,24 @@ assert_regular_or_absent() {
   [[ ! -e "$path" || -f "$path" ]] || die "Caminho nao e arquivo regular: $path"
 }
 
+backup_plugins_dir() {
+  local entry
+  # cache/ and marketplaces/ are re-downloaded by the plugin CLIs; skip their bulk.
+  for entry in "$1"/*; do
+    case "${entry##*/}" in cache|marketplaces) ;; *) backup_path "$entry" ;; esac
+  done
+}
+
 if [[ "$ADDON" != ccusage ]]; then
 
 if selected claude; then
   for path in "$CLAUDE_SETTINGS" "$CLAUDE_JSON" "$CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/RTK.md" "$CLAUDE_DIR/hooks/rtk-rewrite.sh" "$CLAUDE_DIR/hooks/.rtk-hook.sha256"; do assert_regular_or_absent "$path"; backup_path "$path"; done
-  backup_path "$CLAUDE_DIR/plugins"
+  backup_plugins_dir "$CLAUDE_DIR/plugins"
 fi
 if selected codex; then
   for path in "$CODEX_CONFIG" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md" "$CODEX_DIR/RTK.md" "$CODEX_DIR/engram-instructions.md" "$CODEX_DIR/engram-compact-prompt.md"; do assert_regular_or_absent "$path"; backup_path "$path"; done
-  backup_path "$CODEX_DIR/plugins"
-  backup_path "$HOME_DIR/.agents/plugins"
+  backup_plugins_dir "$CODEX_DIR/plugins"
+  backup_plugins_dir "$HOME_DIR/.agents/plugins"
 fi
 
 fi
@@ -281,7 +289,7 @@ edit_client_json() {
   assert_regular_or_absent "$file"
   [[ "$mode" != apply ]] || backup_path "$file"
   python3 - "$mode" "$file" "$kind" "$name" "$OPENCODE_MAJOR" "$@" <<'PY'
-import json, os, pathlib, re, stat, sys, tempfile
+import json, os, pathlib, re, shutil, stat, sys, tempfile
 mode, filename, kind, name, major = sys.argv[1:6]
 args = sys.argv[6:]
 p = pathlib.Path(filename)
@@ -324,23 +332,29 @@ def parse(text):
     root=value(())
     if i!=len(tokens) or not isinstance(root,dict): raise ValueError('Raiz JSONC deve ser objeto unico')
     return root,objects,spans
-if kind=='memory':
-    changes=[((key,),False,True) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
-else:
-    command=args[0]; argv=args[1:]
-    entry={'command':command,'args':argv}
-    if kind=='cline':
-        entry.update(disabled=False,autoApprove=[]); path=('mcpServers',name)
-    elif kind=='copilot':
-        entry.update(type='local',tools=['*']); path=('mcpServers',name)
-    elif kind=='vscode':
-        entry.update(type='stdio'); path=('servers',name)
-    elif kind=='opencode':
+def build(command, argv):
+    if kind=='opencode':
         entry={'type':'local','command':[command]+argv}
         entry.update({'disabled':False} if major=='2' else {'enabled':True})
-        path=('mcp','servers',name) if major=='2' else ('mcp',name)
+        return entry
+    entry={'command':command,'args':argv}
+    if kind=='cline': entry.update(disabled=False,autoApprove=[])
+    elif kind=='copilot': entry.update(type='local',tools=['*'])
+    elif kind=='vscode': entry.update(type='stdio')
     else: raise ValueError('Cliente desconhecido')
-    changes=[(path,entry,False)]
+    return entry
+if kind=='memory':
+    changes=[((key,),False,True,None) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
+else:
+    paths={'cline':('mcpServers',name),'copilot':('mcpServers',name),'vscode':('servers',name),
+           'opencode':('mcp','servers',name) if major=='2' else ('mcp',name)}
+    if kind not in paths: raise ValueError('Cliente desconhecido')
+    legacy=json.loads(os.environ.get('LEGACY_MCP_ARGV') or '[]')
+    if not isinstance(legacy,list) or not all(isinstance(x,str) for x in legacy):
+        raise ValueError('LEGACY_MCP_ARGV precisa ser lista JSON de strings')
+    # new_client_mcp stores npx by absolute path, so the legacy entry did too.
+    if legacy[:1]==['npx']: legacy[0]=shutil.which('npx') or 'npx'
+    changes=[(paths[kind],build(args[0],args[1:]),False,build(legacy[0],legacy[1:]) if legacy else None)]
 if kind=='opencode':
     root,_,_=parse(original)
     current=root.get('mcp',{})
@@ -349,7 +363,7 @@ if kind=='opencode':
     if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
         raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
 text=original
-for path,expected,replace in changes:
+for path,expected,replace,legacy in changes:
     root,objects,spans=parse(text)
     node=root
     for depth,key in enumerate(path):
@@ -362,12 +376,12 @@ for path,expected,replace in changes:
             text=text[:close]+insertion+text[close:]; break
         if depth==len(path)-1:
             if node[key]!=expected:
-                if not replace: raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                if not replace and (legacy is None or node[key]!=legacy): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
                 a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
         node=node[key]
 # Verify all resulting settings before committing the file.
 root,_,_=parse(text)
-for path,expected,_ in changes:
+for path,expected,*_ in changes:
     node=root
     for key in path: node=node[key]
     if node!=expected: raise ValueError('Verificacao JSONC falhou')
