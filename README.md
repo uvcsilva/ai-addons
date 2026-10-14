@@ -179,6 +179,40 @@ Em SSH/WSL/containers, execute no Ubuntu onde os servidores devem rodar e seleci
 os arquivos do mesmo ambiente. Não use caminhos do Windows/macOS no Bash Ubuntu.
 Este pacote não instala servidores remotos nem detecta perfis/ambientes automaticamente.
 
+### Serena em projetos Go
+
+O servidor MCP do Serena precisa também do compilador e do analisador da linguagem.
+Para Go, prepare Go e `gopls` e teste uma leitura real de símbolos:
+
+```bash
+bash install-serena-ubuntu.sh --clients codex --with-go \
+  --check-go-project /caminho/absoluto/do/projeto-go
+```
+
+`--with-go` preserva Go e `gopls` já disponíveis no PATH. Quando ausentes, instala
+Go estável oficial para amd64/arm64 com SHA-256 verificado e `gopls` via `go install`.
+Os binários ficam no escopo do usuário; a compilação de `gopls` usa dois processadores
+e um pacote por vez para reduzir o consumo de memória. A versão Go exigida pelo
+projeto continua definida no `go.mod`; uma instalação existente antiga pode precisar
+de atualização. Dependências do módulo podem ser baixadas durante o teste.
+
+`--check-go-project` exige `go.mod` na raiz, inicia uma conexão MCP temporária e
+confirma símbolos do primeiro arquivo Go encontrado, com limite de 180 segundos.
+Não altera o projeto ativo do chat. Serena pode criar sua configuração `.serena`
+quando o projeto ainda não está preparado. O teste usa as dependências Go já instaladas;
+sem `--with-go`, não instala Go/gopls. Essas duas opções são exclusivas do instalador
+Serena e também aparecem no `--dry-run`.
+
+Outras linguagens continuam exigindo seus próprios compiladores/analisadores;
+este pacote não instala todos os servidores de linguagem. Após corrigir dependências,
+reabra o cliente para reconectar um MCP que tenha encerrado com `Transport closed`.
+
+Os instaladores Serena e Context7 registram gatilhos de uso no `AGENTS.md` global
+do Codex, em blocos gerenciados, preservando instruções existentes e sem duplicação
+na reexecução. Engram, Ponytail e RTK mantêm suas integrações oficiais. Addons são
+usados conforme a tarefa; `ccusage` gera relatórios sob demanda. Visualize é um plugin
+adicional do Codex e não integra o conjunto de seis addons deste repositório.
+
 ### Projeto do Serena
 
 Claude, Codex, Copilot CLI e OpenCode usam `--project-from-cwd`. Inicie esses clientes
@@ -305,7 +339,9 @@ Reinicie os clientes e faça a conferência no ambiente Ubuntu:
 2. Nos clientes selecionados, confira os servidores `engram`, `serena` e `context7`.
    Claude/Codex/OpenCode/Copilot CLI oferecem listagem de MCP; nos editores use o painel
    MCP. No VS Code, confirme que as instruções de usuário estão sendo carregadas.
-3. Ative o projeto correto no Serena e confira a ausência das ferramentas de memória.
+3. Ative o projeto correto no Serena, confira a ausência das ferramentas de memória
+   e peça uma leitura de símbolos de um arquivo. Para Go, use também o teste acima;
+   um registro MCP válido pode coexistir com falha do servidor de linguagem.
 4. Peça ao agente para abrir uma sessão Engram com o diretório real e recuperar contexto.
    Para validar persistência, salve uma informação de teste sem dados privados e
    recupere-a em outra sessão/cliente. Exclua o registro de teste depois.
@@ -430,11 +466,22 @@ for script in install-*-ubuntu.sh; do
 done
 ```
 
+Os testes locais das novas opções, checksum, conflitos e preservação dos blocos
+Codex podem ser executados sem rede e sem modificar as configurações reais:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Esses testes simulam downloads e ferramentas; não substituem a leitura real do
+projeto com `--check-go-project` nem a conferência dos outros MCPs no cliente.
+
 ## 10. Fontes oficiais
 
 Revisão: 10/10/2026. Referências usadas para formatos e limites de integração:
 
 - [RTK](https://github.com/rtk-ai/rtk) (incluindo os adaptadores em `src/hooks/init/`).
+- [Go — instalação](https://go.dev/doc/install) e [gopls](https://go.dev/gopls/).
 - [Serena — clientes](https://github.com/oraios/serena/blob/main/docs/02-usage/030_clients.md) e [repositório](https://github.com/oraios/serena).
 - [Engram — setup](https://github.com/Gentleman-Programming/engram/blob/main/docs/AGENT-SETUP.md), [documentação](https://github.com/Gentleman-Programming/engram/blob/main/DOCS.md) e [implementação](https://github.com/Gentleman-Programming/engram/tree/main/internal/setup).
 - [Context7](https://github.com/upstash/context7), [ccusage e fontes suportadas](https://github.com/ryoppippi/ccusage/blob/main/apps/ccusage/README.md).
