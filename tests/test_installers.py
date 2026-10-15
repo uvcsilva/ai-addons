@@ -341,7 +341,12 @@ class InstallersTest(unittest.TestCase):
         first = config.read_text()
         self.assertEqual(run(tracking="false").returncode, 0)
         self.assertEqual(config.read_text(), first)
-        for bad in ('[hooks]\nexclude_commands = [\n  "a",\n]\n', 'awareness.level = "full"\n',
+        # rtk itself writes multi-line arrays; the whole block is replaced, the rest kept.
+        config.write_text('[hooks]\nexclude_commands = [\n    "a", # note ]\n    "b]",\n]\nsuppress_hook_warning = false\n')
+        self.assertEqual(run(exclude="curl,playwright").returncode, 0)
+        self.assertEqual(tomllib.loads(config.read_text()), {
+            "hooks": {"exclude_commands": ["curl", "playwright"], "suppress_hook_warning": False}})
+        for bad in ('[hooks]\nexclude_commands = [\n  "a",\n', 'awareness.level = "full"\n',
                     "[tracking]\nenabled = true\n[tracking]\nhistory_days = 1\n"):
             with self.subTest(bad=bad):
                 config.write_text(bad)

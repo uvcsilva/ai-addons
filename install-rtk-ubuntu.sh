@@ -317,6 +317,20 @@ def literal(value):
     if isinstance(value, int): return str(value)
     if isinstance(value, list): return "[" + ", ".join(json.dumps(v, ensure_ascii=False) for v in value) + "]"
     return json.dumps(value, ensure_ascii=False)
+def bracket_depth(line):
+    # Saldo de colchetes fora de strings e comentarios TOML.
+    depth, quote, i = 0, None, 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == "\\" and quote == '"': i += 1
+            elif c == quote: quote = None
+        elif c in "\"'": quote = c
+        elif c == "#": break
+        elif c == "[": depth += 1
+        elif c == "]": depth -= 1
+        i += 1
+    return depth
 header = re.compile(r"^\s*\[")
 lines = text.splitlines()
 first_header = next((i for i, l in enumerate(lines) if header.match(l)), len(lines))
@@ -337,9 +351,17 @@ for section, key, value in changes:
     if len(hits) > 1:
         raise SystemExit(f"Chave duplicada [{section}].{key}; config.toml nao alterado")
     if hits:
-        if lines[hits[0]].count("[") > lines[hits[0]].count("]"):
-            raise SystemExit(f"[{section}].{key} ocupa varias linhas; revise manualmente, sem alteracao")
-        lines[hits[0]] = entry
+        # O proprio rtk grava listas em varias linhas; substitui o bloco inteiro ate fechar os colchetes.
+        last = hits[0]
+        depth = bracket_depth(lines[last].split("=", 1)[1])
+        if depth and not tomllib:
+            raise SystemExit(f"[{section}].{key} ocupa varias linhas e requer Python 3.11+; config.toml nao alterado")
+        while depth > 0:
+            last += 1
+            if last >= end:
+                raise SystemExit(f"[{section}].{key} sem fechamento; config.toml nao alterado")
+            depth += bracket_depth(lines[last])
+        lines[hits[0]:last + 1] = [entry]
     else:
         last = max([start] + [i for i in range(start + 1, end) if lines[i].strip()])
         lines.insert(last + 1, entry)
