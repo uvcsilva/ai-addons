@@ -1,0 +1,10 @@
+# Os instaladores sao para Ubuntu; os testes rodam no mesmo ambiente (Bash 5, GNU coreutils, Python 3.12).
+test:
+  image: ubuntu:24.04
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends python3 shellcheck
+  script:
+    - for f in install-*-ubuntu.sh; do bash -n "$f"; done
+    - shellcheck -S warning install-*-ubuntu.sh
+    - python3 -m unittest discover -v tests

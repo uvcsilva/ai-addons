@@ -126,7 +126,7 @@ Simulacao de Context7: sem alteracoes e sem acesso a rede.
   • Instalar @upstash/context7-mcp em ~/.local via npm (versao fixa ate reexecutar).
   • Registrar ~/.local/bin/context7-mcp nos clientes; migrar entrada npx antiga identica.
   • Claude: garantir env.MCP_TIMEOUT >= 60000 no settings.json (partida a frio do MCP).
-  • Registrar instrucoes de uso no AGENTS.md do Codex.
+  • Registrar instrucoes de uso em todos os clientes selecionados.
   • Preservar configuracoes existentes e recusar conflitos de servidor.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
@@ -402,7 +402,11 @@ import json, os, pathlib, re, shutil, stat, sys, tempfile
 mode, filename, kind, name, major = sys.argv[1:6]
 args = sys.argv[6:]
 p = pathlib.Path(filename)
-original = p.read_text() if p.exists() else '{}\n'
+def current():
+    text=p.read_text() if p.exists() else ''
+    # Arquivo vazio (comum no settings.json do VS Code) equivale a objeto vazio.
+    return text if text.strip() else '{}\n'
+original = current()
 pattern = re.compile(r'\s+|//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null|[{}\[\]:,]')
 def parse(text):
     tokens=[]; pos=0
@@ -501,7 +505,7 @@ if mode=='apply' and text!=original:
     try:
         with os.fdopen(fd,'w') as f: f.write(text)
         os.chmod(tmp,stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600)
-        if (p.read_text() if p.exists() else '{}\n')!=original: raise ValueError('Arquivo mudou durante a edicao')
+        if current()!=original: raise ValueError('Arquivo mudou durante a edicao')
         os.replace(tmp,p)
     finally:
         if os.path.exists(tmp): os.unlink(tmp)
@@ -601,9 +605,11 @@ npm install --global --prefix "$HOME_DIR/.local" --registry=https://registry.npm
 [[ -x "$LOCAL_BIN/context7-mcp" ]] || die 'context7-mcp nao apareceu em ~/.local/bin.'
 cat > "$TMP_WORKDIR/context7-rules.md" <<'RULES'
 ## Context7
-Consulte o Context7 para documentacao atual ao trabalhar com bibliotecas, frameworks, SDKs, APIs e ferramentas. Resolva o identificador da biblioteca antes de consultar a documentacao, seguindo as instrucoes do servidor. Use conforme a tarefa, sem chamadas artificiais.
+Use Context7 for current documentation when working with libraries, frameworks, SDKs, APIs and tools. Resolve the library identifier before querying its documentation, following the server instructions. Use it as the task requires, without artificial calls.
 RULES
+if selected claude; then write_managed_rule "$CLAUDE_DIR/CLAUDE.md" "$TMP_WORKDIR/context7-rules.md"; fi
 if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/context7-rules.md"; fi
+new_client_rules "$TMP_WORKDIR/context7-rules.md"
 if selected claude; then set_claude_mcp_timeout; fi
 all_mcp apply context7 "$LOCAL_BIN/context7-mcp"
 all_mcp verify context7 "$LOCAL_BIN/context7-mcp"

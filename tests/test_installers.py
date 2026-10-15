@@ -13,6 +13,13 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# The installers target Ubuntu; skip what needs its GNU tools when running elsewhere (e.g. macOS).
+_BASE_ENV = dict(os.environ, PATH="/usr/bin:/bin")
+HAS_BASH4 = subprocess.run(["bash", "-c", "((BASH_VERSINFO[0] >= 4))"], env=_BASE_ENV).returncode == 0
+HAS_GNU_CP = subprocess.run(["cp", "--version"], env=_BASE_ENV, capture_output=True).returncode == 0
+needs_bash4 = unittest.skipUnless(HAS_BASH4, "requires Bash 4+ (mapfile)")
+needs_gnu_cp = unittest.skipUnless(HAS_GNU_CP, "requires GNU cp (--reflink)")
+needs_tomllib = unittest.skipUnless(sys.version_info >= (3, 11), "requires Python 3.11+ (tomllib)")
 
 
 def function(script, name):
@@ -71,16 +78,19 @@ class InstallersTest(unittest.TestCase):
                 "die() { echo \"$*\" >&2; exit 1; }\n"
                 + function("install-serena-ubuntu.sh", "prepare_go") + "\nprepare_go\n")
 
+    @needs_bash4
     def test_arm64_download_and_checksum(self):
         self.run_shell(self.prepare_go())
         self.assertTrue((self.bin / "go").is_symlink())
         self.assertTrue((self.bin / "gofmt").is_file())
 
+    @needs_bash4
     def test_bad_checksum_does_not_install(self):
         result = self.run_shell(self.prepare_go(bad_checksum=True), check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.bin / "go").exists())
 
+    @needs_bash4
     def test_existing_destination_is_preserved(self):
         code = self.prepare_go()
         dest = self.base / ".local/lib/go/go1.27.2"
@@ -169,6 +179,7 @@ class InstallersTest(unittest.TestCase):
             with self.subTest(function=name):
                 self.assertEqual(len(set(bodies.values())), 1, f"{name} diverge: {sorted(bodies)}")
 
+    @needs_gnu_cp
     def test_plugin_backup_skips_caches(self):
         plugins, backups = self.base / "plugins", self.base / "backups"
         for rel in ("cache/x", "marketplaces/y", "data/z", "installed_plugins.json", ".staging/w"):
@@ -238,6 +249,34 @@ class InstallersTest(unittest.TestCase):
         self.assertEqual(self.edit_json(target, legacy=self.LEGACY).returncode, 0)
         self.assertEqual(json.loads(target.read_text())["mcpServers"]["context7"]["command"], "/bin/c7")
 
+    def test_empty_json_file_is_treated_as_object(self):
+        target = self.base / "settings.json"
+        target.write_text("")
+        self.assertEqual(self.edit_json(target).returncode, 0)
+        self.assertEqual(json.loads(target.read_text())["mcpServers"]["context7"]["command"], "/bin/c7")
+        self.assertEqual(self.edit_json(target, mode="verify").returncode, 0)
+
+    def test_github_token_stays_out_of_argv(self):
+        args, header = self.base / "curl-args", self.base / "curl-header"
+        release = {"tag_name": "v1", "assets": [{"name": "x.tar.gz", "digest": "sha256:" + "0" * 64,
+                   "browser_download_url": "https://github.com/o/r/releases/download/v1/x.tar.gz"}]}
+        self.executable("curl", f"printf '%s\\n' \"$@\" >> {shlex.quote(str(args))}\n"
+                        "prev=\nfor arg in \"$@\"; do\n"
+                        f" [[ $prev != -H || $arg != @* ]] || cp \"${{arg#@}}\" {shlex.quote(str(header))}\n"
+                        " prev=$arg\ndone\n"
+                        f"echo {shlex.quote(json.dumps(release))} > \"${{@: -1}}\"\n")
+        code = (f"TMP_WORKDIR={shlex.quote(str(self.base))}\n"
+                + function("install-engram-ubuntu.sh", "release_asset_metadata") + "\n"
+                + "release_asset_metadata o/r x.tar.gz\n")
+        result = self.run_shell("export GITHUB_TOKEN=secret-token\n" + code)
+        self.assertIn("v1\thttps://github.com/o/r/releases/download/v1/x.tar.gz\t" + "0" * 64, result.stdout)
+        self.assertNotIn("secret-token", args.read_text())
+        self.assertEqual(header.read_text(), "Authorization: Bearer secret-token\n")
+        args.unlink(), header.unlink()
+        self.run_shell(code)
+        self.assertNotIn("Authorization", args.read_text())
+        self.assertFalse(header.exists())
+
     def test_claude_mcp_legacy_entry_is_migrated(self):
         claude_json = self.base / ".claude.json"
         log = self.base / "claude.log"
@@ -267,6 +306,7 @@ class InstallersTest(unittest.TestCase):
                 elif entry is new:
                     self.assertEqual(calls, "")
 
+    @needs_tomllib
     def test_codex_toml_memory_edit_is_minimal(self):
         import tomllib
         config = self.base / "config.toml"
@@ -305,6 +345,60 @@ class InstallersTest(unittest.TestCase):
                        + function("install-dependencies-ubuntu.sh", "prune_old_node") + "\nprune_old_node\n")
         self.assertEqual(sorted(p.name for p in root.iterdir()),
                          ["current", "node-v24.21.0-linux-arm64", "outro"])
+
+    def normalize_clients(self, clients, with_opencode="false"):
+        script = "install-dependencies-ubuntu.sh"
+        return self.run_shell(f"CLIENTS={shlex.quote(clients)}\nWITH_OPENCODE={with_opencode}\n"
+                              "die() { echo \"$*\" >&2; exit 1; }\n"
+                              "selected() { [[ \",$CLIENTS,\" == *\",$1,\"* ]]; }\n"
+                              + function(script, "normalize_clients")
+                              + "\nnormalize_clients\necho \"$CLIENTS\"\n", check=False)
+
+    def test_bootstrap_client_selection(self):
+        for clients, opencode, expected in [
+                ("all", "false", "claude,codex,cline,opencode,copilot,vscode"),
+                ("claude", "false", "codex,claude"),
+                ("codex", "true", "codex,opencode"),
+                ("opencode,codex", "true", "opencode,codex")]:
+            with self.subTest(clients=clients, opencode=opencode):
+                result = self.normalize_clients(clients, opencode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+        for clients, message in [("foo", "Cliente desconhecido"), ("openrouter", "OpenRouter"),
+                                 ("claude,,codex", "invalida"), (",codex", "invalida")]:
+            with self.subTest(clients=clients):
+                result = self.normalize_clients(clients)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+        result = subprocess.run(["bash", str(ROOT / "install-dependencies-ubuntu.sh"), "--clients"],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Falta valor", result.stderr)
+
+    def test_bootstrap_cli_install_and_upgrade(self):
+        home, log = self.base / "home", self.base / "npm.log"
+        prefix = home / ".local"
+        # Fake npm: log the package and link the binary like a global npm install.
+        self.executable("npm", f"echo \"${{@: -1}}\" >> {shlex.quote(str(log))}\n"
+                        f"mkdir -p {shlex.quote(str(prefix))}/lib/node_modules/pkg {shlex.quote(str(prefix))}/bin\n"
+                        f"printf '#!/bin/sh\\n' > {shlex.quote(str(prefix))}/lib/node_modules/pkg/cli\n"
+                        f"chmod 700 {shlex.quote(str(prefix))}/lib/node_modules/pkg/cli\n"
+                        f"ln -sfn ../lib/node_modules/pkg/cli {shlex.quote(str(prefix))}/bin/tool\n")
+        def run(upgrade, upgradable="true"):
+            log.write_text("")
+            self.run_shell(f"export PATH={shlex.quote(str(prefix / 'bin'))}:$PATH\n"
+                           f"HOME_DIR={shlex.quote(str(home))}\nNPM_REGISTRY=r\nUPGRADE={upgrade}\n"
+                           "die() { echo \"$*\" >&2; exit 1; }\n"
+                           + function("install-dependencies-ubuntu.sh", "install_client_cli")
+                           + f"\ninstall_client_cli Tool tool pkg@latest {upgradable}\n")
+            return log.read_text()
+        self.assertEqual(run("false"), "pkg@latest\n")  # absent: installs
+        self.assertEqual(run("false"), "")  # present: kept
+        self.assertEqual(run("true"), "pkg@latest\n")  # npm-managed: upgraded
+        self.assertEqual(run("true", "false"), "")  # e.g. OpenCode 2: never downgraded
+        (prefix / "bin/tool").unlink()
+        self.executable("tool", "exit 0\n")  # other origin: kept even with --upgrade
+        self.assertEqual(run("true"), "")
 
     def test_dry_run_has_no_files(self):
         home = self.base / "empty-home"

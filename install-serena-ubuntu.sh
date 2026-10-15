@@ -135,7 +135,7 @@ Simulacao de Serena: sem alteracoes e sem acesso a rede.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Serena depois da instalacao.
   • Preparar Go/gopls: $WITH_GO; teste Go: ${CHECK_GO_PROJECT:-nao solicitado}.
-  • Registrar instrucoes de uso do Serena no AGENTS.md do Codex.
+  • Registrar instrucoes de uso do Serena em todos os clientes selecionados.
 Somente este addon sera instalado; uv/Python e Go/gopls opcionais sao pre-requisitos.
 EOF
   exit 0
@@ -254,8 +254,14 @@ backup_path "$LOCAL_BIN/uvx"
 
 # Resolve an official release asset and its GitHub API SHA-256 digest.
 release_asset_metadata() {
-  local repo="$1" asset="$2" api_json="$TMP_WORKDIR/release.json"
+  local repo="$1" asset="$2" api_json="$TMP_WORKDIR/release.json" auth=()
+  # GITHUB_TOKEN opcional evita o limite anonimo da API; vai por arquivo, fora da linha de comando.
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$TMP_WORKDIR/github-auth.header"
+    auth=(-H "@$TMP_WORKDIR/github-auth.header")
+  fi
   curl --fail --silent --show-error --location --retry 3 --proto '=https' --tlsv1.2 \
+    ${auth[@]+"${auth[@]}"} \
     -H 'Accept: application/vnd.github+json' \
     -H 'X-GitHub-Api-Version: 2022-11-28' \
     -H 'User-Agent: six-addons-ubuntu-installer' \
@@ -491,7 +497,11 @@ import json, os, pathlib, re, shutil, stat, sys, tempfile
 mode, filename, kind, name, major = sys.argv[1:6]
 args = sys.argv[6:]
 p = pathlib.Path(filename)
-original = p.read_text() if p.exists() else '{}\n'
+def current():
+    text=p.read_text() if p.exists() else ''
+    # Arquivo vazio (comum no settings.json do VS Code) equivale a objeto vazio.
+    return text if text.strip() else '{}\n'
+original = current()
 pattern = re.compile(r'\s+|//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null|[{}\[\]:,]')
 def parse(text):
     tokens=[]; pos=0
@@ -590,7 +600,7 @@ if mode=='apply' and text!=original:
     try:
         with os.fdopen(fd,'w') as f: f.write(text)
         os.chmod(tmp,stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600)
-        if (p.read_text() if p.exists() else '{}\n')!=original: raise ValueError('Arquivo mudou durante a edicao')
+        if current()!=original: raise ValueError('Arquivo mudou durante a edicao')
         os.replace(tmp,p)
     finally:
         if os.path.exists(tmp): os.unlink(tmp)
@@ -696,7 +706,7 @@ prepare_go() {
     for binary in go gofmt; do
       [[ ! -e "$LOCAL_BIN/$binary" && ! -L "$LOCAL_BIN/$binary" ]] || die "Conflito: $LOCAL_BIN/$binary ja existe."
     done
-    curl --fail --silent --show-error --location --retry 3 'https://go.dev/dl/?mode=json' -o "$TMP_WORKDIR/go-releases.json"
+    curl --fail --silent --show-error --location --retry 3 --proto '=https' --tlsv1.2 'https://go.dev/dl/?mode=json' -o "$TMP_WORKDIR/go-releases.json"
     python3 - "$TMP_WORKDIR/go-releases.json" "$(uname -m)" > "$TMP_WORKDIR/go-asset.txt" <<'PYGO'
 import json,re,sys
 arch={'x86_64':'amd64','amd64':'amd64','aarch64':'arm64','arm64':'arm64'}[sys.argv[2]]
@@ -712,7 +722,7 @@ PYGO
     go_version="${go_asset[0]}"; go_archive="${go_asset[1]}"; go_sha="${go_asset[2]}"
     go_root="$HOME_DIR/.local/lib/go/$go_version"
     [[ ! -e "$go_root" && ! -L "$go_root" ]] || die "Destino Go ja existe: $go_root; revise antes de instalar."
-    curl --fail --silent --show-error --location --retry 3 "https://go.dev/dl/$go_archive" -o "$TMP_WORKDIR/go.tar.gz"
+    curl --fail --silent --show-error --location --retry 3 --proto '=https' --tlsv1.2 "https://go.dev/dl/$go_archive" -o "$TMP_WORKDIR/go.tar.gz"
     printf '%s  %s\n' "$go_sha" "$TMP_WORKDIR/go.tar.gz" | sha256sum --check --status
     "$UV_TOOL_DIR/serena-agent/bin/python" - "$TMP_WORKDIR/go.tar.gz" "$TMP_WORKDIR/go-unpack" <<'PYGO'
 import sys,tarfile
@@ -782,9 +792,11 @@ done
 if [[ "$WITH_GO" == 1 ]]; then prepare_go; fi
 cat > "$TMP_WORKDIR/serena-rules.md" <<'RULES'
 ## Serena
-Antes de tarefas de codigo, leia as instrucoes iniciais do Serena. Priorize suas ferramentas de simbolos e referencias para explorar e modificar codigo. Se o backend falhar, informe a falha; registro MCP nao comprova funcionamento do analisador.
+Before coding tasks, read the Serena initial instructions. Prefer its symbol and reference tools to explore and modify code. If the language backend fails, report it; an MCP registration does not prove the analyzer works.
 RULES
+if selected claude; then write_managed_rule "$CLAUDE_DIR/CLAUDE.md" "$TMP_WORKDIR/serena-rules.md"; fi
 if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/serena-rules.md"; fi
+new_client_rules "$TMP_WORKDIR/serena-rules.md"
 if selected claude; then set_claude_mcp_timeout; fi
 all_mcp apply serena "$LOCAL_BIN/serena"
 "$LOCAL_BIN/serena" --version

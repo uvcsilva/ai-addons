@@ -293,7 +293,11 @@ import json, os, pathlib, re, shutil, stat, sys, tempfile
 mode, filename, kind, name, major = sys.argv[1:6]
 args = sys.argv[6:]
 p = pathlib.Path(filename)
-original = p.read_text() if p.exists() else '{}\n'
+def current():
+    text=p.read_text() if p.exists() else ''
+    # Arquivo vazio (comum no settings.json do VS Code) equivale a objeto vazio.
+    return text if text.strip() else '{}\n'
+original = current()
 pattern = re.compile(r'\s+|//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null|[{}\[\]:,]')
 def parse(text):
     tokens=[]; pos=0
@@ -392,7 +396,7 @@ if mode=='apply' and text!=original:
     try:
         with os.fdopen(fd,'w') as f: f.write(text)
         os.chmod(tmp,stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600)
-        if (p.read_text() if p.exists() else '{}\n')!=original: raise ValueError('Arquivo mudou durante a edicao')
+        if current()!=original: raise ValueError('Arquivo mudou durante a edicao')
         os.replace(tmp,p)
     finally:
         if os.path.exists(tmp): os.unlink(tmp)
@@ -502,8 +506,28 @@ fi
 claude plugin update ponytail@ponytail --scope user
 fi
 if selected codex; then
-codex plugin marketplace add DietrichGebert/ponytail
-codex plugin add ponytail@ponytail
+# Reexecucao: aceita marketplace/plugin ja presentes, como no fluxo do Claude.
+if ! codex plugin marketplace add DietrichGebert/ponytail > "$TMP_WORKDIR/ponytail-codex-marketplace.txt" 2>&1; then
+  cat "$TMP_WORKDIR/ponytail-codex-marketplace.txt"
+  grep -qi 'already' "$TMP_WORKDIR/ponytail-codex-marketplace.txt" || die 'Falha ao adicionar o marketplace Ponytail no Codex.'
+else
+  cat "$TMP_WORKDIR/ponytail-codex-marketplace.txt"
+fi
+codex plugin list --json > "$TMP_WORKDIR/codex-plugins.json"
+codex_ponytail_state="$(python3 - "$TMP_WORKDIR/codex-plugins.json" <<'PY'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if not isinstance(data, dict) or not isinstance(data.get("installed"), list):
+    raise SystemExit("Formato de codex plugin list --json nao reconhecido")
+hits = [e for e in data["installed"] if isinstance(e, dict) and e.get("name") == "ponytail" and e.get("marketplaceName") == "ponytail"]
+print("matching" if len(hits) == 1 and hits[0].get("installed") is True and hits[0].get("enabled") is True else "absent")
+PY
+)" || die 'Nao foi possivel conferir o plugin Ponytail no Codex.'
+if [[ "$codex_ponytail_state" == matching ]]; then
+  printf 'Plugin Codex ponytail ja instalado e habilitado.\n'
+else
+  codex plugin add ponytail@ponytail
+fi
 fi
 verify_plugins ponytail
 cat > "$TMP_WORKDIR/ponytail-rules.md" <<'PONYTAIL_RULES'

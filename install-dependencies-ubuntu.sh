@@ -9,7 +9,10 @@ readonly LOCAL_BIN="$HOME_DIR/.local/bin"
 readonly NODE_ROOT="$HOME_DIR/.local/lib/nodejs"
 readonly NPM_REGISTRY="https://registry.npmjs.org"
 TMP_DIR=""
+CLIENTS="codex"
 WITH_OPENCODE=false
+UPGRADE=false
+selected() { [[ ",$CLIENTS," == *",$1,"* ]]; }
 
 die() {
   printf '[ERRO] %s\n' "$*" >&2
@@ -35,28 +38,62 @@ prune_old_node() {
 
 usage() {
   cat <<EOF
-Uso: bash $SCRIPT_NAME [--with-opencode]
+Uso: bash $SCRIPT_NAME [--clients LISTA] [--with-opencode] [--upgrade]
 
 Prepara os pre-requisitos para os seis addons no Ubuntu:
-  curl, git, jq, Python 3, sha256sum, flock, Node.js LTS, npm, npx e Codex CLI.
+  curl, git, jq, Python 3, sha256sum, flock, Node.js LTS, npm, npx e os CLIs
+  dos clientes selecionados (Codex CLI sempre).
 
-  --with-opencode  Instala OpenCode 1 via opencode-ai@1 se ausente.
+  --clients LISTA  claude,codex,cline,opencode,copilot,vscode ou all.
+                   Padrao: codex. Instala via npm, somente se ausente:
+                   claude=@anthropic-ai/claude-code, codex=@openai/codex,
+                   cline=cline, opencode=opencode-ai@1, copilot=@github/copilot.
+                   vscode e um editor: instale-o separadamente.
+                   Use a mesma lista depois nos seis instaladores.
+  --with-opencode  Equivale a incluir opencode em --clients.
                    Preserva OpenCode 1 ou 2 existente e valida sua versao.
-  --help          Mostra esta ajuda.
+  --upgrade        Atualiza os CLIs selecionados que este script instalou em
+                   ~/.local (OpenCode somente dentro do major 1). Instalacoes
+                   de outra origem sao preservadas.
+  --help           Mostra esta ajuda.
 
 Execute como usuario normal. O script usa sudo somente para instalar pacotes do
-Ubuntu e nao autentica o Codex. Na primeira execucao, rode: codex login
+Ubuntu e nao autentica os clientes. Na primeira execucao, rode: codex login
+(e claude, cline auth, copilot conforme os clientes escolhidos).
 EOF
 }
 
 while (($#)); do
   case "$1" in
     --with-opencode) WITH_OPENCODE=true ;;
+    --upgrade) UPGRADE=true ;;
+    --clients)
+      (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || die 'Falta valor para --clients.'
+      CLIENTS="$2"
+      shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "Opcao desconhecida: $1. Use --help." ;;
   esac
   shift
 done
+normalize_clients() {
+  local client
+  local -a client_list
+  [[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode'
+  [[ "$CLIENTS" != ,* && "$CLIENTS" != *, && "$CLIENTS" != *,,* ]] || die 'Lista de clientes invalida.'
+  IFS=, read -r -a client_list <<< "$CLIENTS"
+  for client in "${client_list[@]}"; do
+    case "$client" in
+      claude|codex|cline|opencode|copilot|vscode) ;;
+      openrouter) die 'OpenRouter e provedor: use --clients cline,opencode e escolha OpenRouter no cliente.' ;;
+      *) die "Cliente desconhecido: $client" ;;
+    esac
+  done
+  # Codex continua sendo instalado sempre, como antes da opcao --clients.
+  selected codex || CLIENTS="codex,$CLIENTS"
+  if "$WITH_OPENCODE" && ! selected opencode; then CLIENTS="$CLIENTS,opencode"; fi
+}
+normalize_clients
 
 [[ "${EUID:-$(id -u)}" -ne 0 ]] || die 'Execute como usuario normal, sem sudo.'
 [[ -r /etc/os-release ]] || die 'Nao foi possivel identificar a distribuicao Linux.'
@@ -174,18 +211,39 @@ EOF
   } >> "$PROFILE"
 fi
 
-if ! command -v codex >/dev/null 2>&1; then
-  npm install --global --prefix "$HOME_DIR/.local" \
-    --registry="$NPM_REGISTRY" --engine-strict=true @openai/codex@latest
-else
-  printf 'Codex ja esta disponivel em %s; mantendo a instalacao existente.\n' "$(command -v codex)"
-fi
-
-if "$WITH_OPENCODE"; then
-  if ! command -v opencode >/dev/null 2>&1; then
-    npm install --global --prefix "$HOME_DIR/.local" \
-      --registry="$NPM_REGISTRY" --engine-strict=true opencode-ai@1
+install_client_cli() {
+  local name="$1" binary="$2" package="$3" upgradable="${4:-true}" current modules
+  if command -v "$binary" >/dev/null 2>&1; then
+    current="$(command -v "$binary")"
+    modules="$(readlink -f "$HOME_DIR/.local/lib/node_modules" 2>/dev/null || true)"
+    # So atualiza o que o npm deste script instalou; outras origens tem seu proprio updater.
+    if ! "$UPGRADE" || ! "$upgradable" || [[ -z "$modules" || "$(readlink -f "$current")" != "$modules/"* ]]; then
+      printf '%s ja esta disponivel em %s; mantendo a instalacao existente.\n' "$name" "$current"
+      return 0
+    fi
+    printf 'Atualizando %s (%s)...\n' "$name" "$package"
+  else
+    printf 'Instalando %s (%s)...\n' "$name" "$package"
   fi
+  npm install --global --prefix "$HOME_DIR/.local" \
+    --registry="$NPM_REGISTRY" --engine-strict=true "$package"
+  hash -r
+  command -v "$binary" >/dev/null 2>&1 || die "$name foi instalado, mas $binary nao esta no PATH."
+}
+
+CLI_BINARIES=()
+if selected codex; then install_client_cli 'Codex' codex '@openai/codex@latest'; CLI_BINARIES+=(codex); fi
+if selected claude; then install_client_cli 'Claude Code' claude '@anthropic-ai/claude-code@latest'; CLI_BINARIES+=(claude); fi
+if selected cline; then install_client_cli 'Cline CLI' cline 'cline@latest'; CLI_BINARIES+=(cline); fi
+if selected copilot; then install_client_cli 'Copilot CLI' copilot '@github/copilot@latest'; CLI_BINARIES+=(copilot); fi
+
+if selected opencode; then
+  # opencode-ai@1 rebaixaria um OpenCode 2; so atualiza dentro do major 1.
+  opencode_upgradable=false
+  if command -v opencode >/dev/null 2>&1; then
+    case "$(opencode --version 2>/dev/null)" in 1.*|v1.*) opencode_upgradable=true ;; esac
+  fi
+  install_client_cli 'OpenCode' opencode 'opencode-ai@1' "$opencode_upgradable"
   opencode_version="$(opencode --version)" || die 'OpenCode esta instalado, mas falhou ao informar a versao.'
   case "$opencode_version" in
     1.*|v1.*|2.*|v2.*) printf 'OpenCode detectado: %s\n' "$opencode_version" ;;
@@ -193,22 +251,32 @@ if "$WITH_OPENCODE"; then
   esac
 fi
 
-printf '[5/5] Conferindo dependencias comuns e Codex. Versoes detectadas:\n'
-for binary in jq git python3 node npm npx codex; do
+printf '[5/5] Conferindo dependencias comuns e clientes. Versoes detectadas:\n'
+for binary in jq git python3 node npm npx "${CLI_BINARIES[@]}"; do
   command -v "$binary" >/dev/null 2>&1 || die "$binary nao esta disponivel no PATH apos a instalacao."
   "$binary" --version
 done
 command -v sha256sum >/dev/null 2>&1 || die 'sha256sum nao foi instalado.'
 command -v flock >/dev/null 2>&1 || die 'flock nao foi instalado.'
-printf '\nAutentique o Codex com: codex login\n'
+printf '\nClientes preparados: %s\n' "$CLIENTS"
+printf 'Autentique o Codex com: codex login\n'
+if selected claude; then printf 'Autentique o Claude Code executando: claude\n'; fi
+if selected cline; then printf 'Autentique o Cline CLI com: cline auth\n'; fi
+if selected copilot; then printf 'Autentique o Copilot CLI executando: copilot (depois /login)\n'; fi
+if selected vscode; then
+  if command -v code >/dev/null 2>&1; then
+    printf 'VS Code detectado: %s\n' "$(command -v code)"
+  else
+    printf 'VS Code nao foi encontrado: instale-o e a extensao GitHub Copilot separadamente.\n'
+  fi
+fi
 printf 'O PATH foi salvo em %s; abra uma nova sessao para aplica-lo.\n' "$PROFILE"
 printf 'Para aplicar agora neste terminal: export PATH="$HOME/.local/bin:$PATH"\n'
 printf '\nOs seis addons podem ser instalados somente no Codex com --clients codex.\n'
 printf -- '--clients all seleciona seis clientes; nao significa somente os seis addons.\n'
 if ! command -v opencode >/dev/null 2>&1; then
-  printf 'OpenCode ausente: reexecute este bootstrap com --with-opencode para usa-lo.\n'
+  printf 'OpenCode ausente: reexecute este bootstrap com --clients all ou --with-opencode.\n'
 fi
 if ! command -v claude >/dev/null 2>&1; then
-  printf 'Claude Code ausente: instale seu CLI antes de selecionar claude ou all.\n'
+  printf 'Claude Code ausente: reexecute este bootstrap com --clients all ou incluindo claude.\n'
 fi
-printf 'Cline, Copilot e VS Code devem ser instalados/configurados separadamente para uso.\n'

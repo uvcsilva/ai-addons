@@ -243,8 +243,14 @@ backup_path "$LOCAL_BIN/rtk"
 
 # Resolve an official release asset and its GitHub API SHA-256 digest.
 release_asset_metadata() {
-  local repo="$1" asset="$2" api_json="$TMP_WORKDIR/release.json"
+  local repo="$1" asset="$2" api_json="$TMP_WORKDIR/release.json" auth=()
+  # GITHUB_TOKEN opcional evita o limite anonimo da API; vai por arquivo, fora da linha de comando.
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    printf 'Authorization: Bearer %s\n' "$GITHUB_TOKEN" > "$TMP_WORKDIR/github-auth.header"
+    auth=(-H "@$TMP_WORKDIR/github-auth.header")
+  fi
   curl --fail --silent --show-error --location --retry 3 --proto '=https' --tlsv1.2 \
+    ${auth[@]+"${auth[@]}"} \
     -H 'Accept: application/vnd.github+json' \
     -H 'X-GitHub-Api-Version: 2022-11-28' \
     -H 'User-Agent: six-addons-ubuntu-installer' \
@@ -327,7 +333,11 @@ import json, os, pathlib, re, shutil, stat, sys, tempfile
 mode, filename, kind, name, major = sys.argv[1:6]
 args = sys.argv[6:]
 p = pathlib.Path(filename)
-original = p.read_text() if p.exists() else '{}\n'
+def current():
+    text=p.read_text() if p.exists() else ''
+    # Arquivo vazio (comum no settings.json do VS Code) equivale a objeto vazio.
+    return text if text.strip() else '{}\n'
+original = current()
 pattern = re.compile(r'\s+|//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null|[{}\[\]:,]')
 def parse(text):
     tokens=[]; pos=0
@@ -426,7 +436,7 @@ if mode=='apply' and text!=original:
     try:
         with os.fdopen(fd,'w') as f: f.write(text)
         os.chmod(tmp,stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600)
-        if (p.read_text() if p.exists() else '{}\n')!=original: raise ValueError('Arquivo mudou durante a edicao')
+        if current()!=original: raise ValueError('Arquivo mudou durante a edicao')
         os.replace(tmp,p)
     finally:
         if os.path.exists(tmp): os.unlink(tmp)

@@ -53,10 +53,23 @@ O script instala `curl`, `git`, `jq`, Python 3, `sha256sum`, `flock`, Node.js LT
 `npm`, `npx` e Codex CLI. Execute como usuário normal; ele pede `sudo` apenas para
 instalar pacotes do Ubuntu. As novas instalações de Node.js, npm e Codex ficam no
 escopo do usuário, em `~/.local`. Um Codex já disponível no PATH é preservado.
-Use `codex login` se ainda não estiver autenticado. Outros
-clientes, como Claude Code, continuam sendo instalados separadamente. Como o padrão
+Use `codex login` se ainda não estiver autenticado. Como o padrão
 dos seis instaladores é `claude,codex`, use `--clients codex` se ainda não tiver
-instalado o Claude Code.
+instalado o Claude Code, ou prepare-o com `--clients` abaixo.
+
+Para preparar também os CLIs dos demais clientes, passe ao bootstrap a mesma lista
+que usará nos instaladores:
+
+```bash
+bash install-dependencies-ubuntu.sh --clients all
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Cada CLI selecionado é instalado via npm em `~/.local`, somente se ausente:
+Claude Code (`@anthropic-ai/claude-code`), Codex (`@openai/codex`), Cline CLI
+(`cline`), OpenCode 1 (`opencode-ai@1`) e Copilot CLI (`@github/copilot`). VS Code é
+um editor e continua sendo instalado separadamente. O Codex é sempre incluído.
+Autentique cada cliente depois (`codex login`, `claude`, `cline auth`, `copilot`).
 
 Para também preparar OpenCode:
 
@@ -73,12 +86,16 @@ continuam com instalação e autenticação próprias.
 **`--clients all` significa todos os clientes, não todos os addons.** Os seis addons
 podem ser instalados apenas no Codex passando `--clients codex` a cada instalador.
 Para `all`, OpenCode precisa estar disponível no PATH para detectar o schema 1/2;
-também é necessário Claude Code. O bootstrap informa essas pendências ao terminar.
+também é necessário Claude Code. `bash install-dependencies-ubuntu.sh --clients all`
+instala ambos; o bootstrap informa pendências ao terminar.
 Só use `--opencode-major 1|2` para preparar a configuração de uma versão conhecida;
 essa opção não instala OpenCode e não deve ser escolhida por tentativa.
 
-O script de preparação aceita somente `--help` e `--with-opencode`. Ele não aceita
-`--clients` nem `--dry-run`. A alteração do PATH dentro de um script não se propaga
+O script de preparação aceita somente `--help`, `--clients`, `--with-opencode`
+(equivale a incluir `opencode` em `--clients`) e `--upgrade`. Com `--upgrade`, os CLIs
+selecionados que o próprio bootstrap instalou em `~/.local` são atualizados; instalações
+de outra origem são preservadas, e OpenCode só é atualizado dentro do major 1, nunca
+rebaixado de 2. Ele não aceita `--dry-run`. A alteração do PATH dentro de um script não se propaga
 ao terminal que o iniciou; por isso os exemplos incluem `export PATH=...`.
 
 - Ubuntu Linux, Bash 4+, usuário normal, sem executar os scripts com `sudo`.
@@ -208,9 +225,10 @@ Outras linguagens continuam exigindo seus próprios compiladores/analisadores;
 este pacote não instala todos os servidores de linguagem. Após corrigir dependências,
 reabra o cliente para reconectar um MCP que tenha encerrado com `Transport closed`.
 
-Os instaladores Serena e Context7 registram gatilhos de uso no `AGENTS.md` global
-do Codex, em blocos gerenciados, preservando instruções existentes e sem duplicação
-na reexecução. Engram, Ponytail e RTK mantêm suas integrações oficiais. Addons são
+Os instaladores Serena e Context7 registram gatilhos de uso em todos os clientes
+selecionados: `CLAUDE.md` do Claude, `AGENTS.md` global do Codex e os arquivos de regras
+dos quatro novos clientes, em blocos gerenciados, preservando instruções existentes e
+sem duplicação na reexecução. Engram, Ponytail e RTK mantêm suas integrações oficiais. Addons são
 usados conforme a tarefa; `ccusage` gera relatórios sob demanda. Visualize é um plugin
 adicional do Codex e não integra o conjunto de seis addons deste repositório.
 
@@ -248,8 +266,8 @@ bash install-ccusage-ubuntu.sh --clients codex &&
 bash install-ponytail-ubuntu.sh --clients codex
 ```
 
-Para **todos os seis clientes**, prepare também OpenCode com `--with-opencode` e
-instale Claude Code. A sequência abaixo usa o **Cline CLI e o perfil padrão
+Para **todos os seis clientes**, prepare os CLIs com
+`bash install-dependencies-ubuntu.sh --clients all`. A sequência abaixo usa o **Cline CLI e o perfil padrão
 VS Code**; ajuste os destinos conforme a seção 3. Os aplicativos e suas contas
 precisam estar configurados para usar as integrações:
 
@@ -392,8 +410,13 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   de terceiros executado com as permissões do usuário.
 - O bootstrap usa a versão LTS do Node.js publicada em nodejs.org, validando o SHA-256
   publicado para o arquivo baixado. Instala Codex CLI com `@latest` via npm somente
-  se ausente; com `--with-opencode`, instala `opencode-ai@1` somente se ausente.
-  Reexecutar o bootstrap pode atualizar o Node LTS, mas preserva os clientes existentes.
+  se ausente; com `--clients`, instala também os CLIs selecionados (`@latest`, ou
+  `opencode-ai@1`) somente se ausentes.
+  Reexecutar o bootstrap pode atualizar o Node LTS, mas preserva os clientes existentes,
+  exceto com `--upgrade`.
+- As consultas à API do GitHub são anônimas por padrão (limite de 60 por hora por IP).
+  Em redes compartilhadas, exporte `GITHUB_TOKEN` antes de executar: o token vai só para
+  `api.github.com`, por um arquivo temporário privado, e não aparece na linha de comando.
 - Serena usa `uv tool install --upgrade -p 3.13 serena-agent`; ccusage usa `@latest`
   com validação de requisitos de Node pelo npm. Context7 instala `@upstash/context7-mcp@latest`
   em `~/.local` e registra `~/.local/bin/context7-mcp`; a versão só muda ao reexecutar o
@@ -455,7 +478,7 @@ codebase-memory-mcp ou orquestrador; também não remove instalações anteriore
 ### Recuperar uma instalação interrompida
 
 Se aparecer `Instale OpenCode ou informe --opencode-major 1|2`, confira a seleção de
-clientes. Para usar OpenCode, execute o bootstrap com `--with-opencode`, aplique o
+clientes. Para usar OpenCode, execute o bootstrap com `--clients all` ou `--with-opencode`, aplique o
 PATH da seção 2 e reexecute o instalador que falhou. Para usar apenas Codex, passe
 `--clients codex` em todos os seis comandos.
 
@@ -482,12 +505,15 @@ com sucesso.
 
 ## 9. Validação e limites conhecidos
 
-Em **14/10/2026**, os sete scripts passaram pela verificação de sintaxe Bash e os
-**17 testes locais** de [tests/test_installers.py](tests/test_installers.py) passaram.
+Em **15/10/2026**, os sete scripts passaram pela verificação de sintaxe Bash e pelo
+`shellcheck -S warning`, e os **21 testes** de [tests/test_installers.py](tests/test_installers.py)
+passaram em Ubuntu 24.04. O mesmo conjunto roda no CI do GitLab ([.gitlab-ci.yml](.gitlab-ci.yml)).
 A suíte cobre instalação Go simulada, checksum, preservação de ferramentas existentes,
 limites de compilação do `gopls`, blocos de instruções, timeout MCP do Claude,
 backups de plugins, memória nativa por cliente, edição JSONC/TOML, migração de MCP
-legado, remoção de versões antigas do Node, helpers compartilhados e `--dry-run`.
+legado, remoção de versões antigas do Node, helpers compartilhados, `--dry-run`,
+JSON vazio, `GITHUB_TOKEN` fora da linha de comando e seleção/atualização de clientes
+no bootstrap.
 
 Para conferir localmente a sintaxe dos sete scripts sem instalar nada:
 
@@ -499,8 +525,9 @@ done
 )
 ```
 
-Os testes exigem **Python 3.11+** (`tomllib`) e podem ser executados sem rede e sem
-modificar as configurações reais:
+Os testes podem ser executados sem rede e sem modificar as configurações reais. Fora
+do Ubuntu (por exemplo, no macOS), os testes que dependem de Bash 4+, GNU `cp` ou
+Python 3.11+ (`tomllib`) são pulados automaticamente:
 
 ```bash
 python3 -m unittest discover -s tests -v
