@@ -348,6 +348,20 @@ class InstallersTest(unittest.TestCase):
                 self.assertNotEqual(run("high", "x", "true").returncode, 0)
                 self.assertEqual(config.read_text(), bad)
 
+    def test_rtk_hook_only_never_reaches_codex(self):
+        log = self.base / "rtk.log"
+        # Fake rtk refuses the same flags as rtk init --codex (src/hooks/init/mod.rs).
+        self.executable("rtk", f"echo \"$*\" >> {shlex.quote(str(log))}\n"
+                        'if [[ " $* " == *" --codex "* && " $* " =~ " --(hook-only|auto-patch|no-patch|claude-md) " ]]; then exit 1; fi\n')
+        code = (f"LOCAL_BIN={shlex.quote(str(self.bin))}\nCLIENTS=claude,codex\n"
+                "RTK_CLAUDE_FLAGS=(--hook-only)\nRTK_INIT_FLAGS=(--no-trust-filters)\n"
+                "selected() { [[ \",$CLIENTS,\" == *\",$1,\"* ]]; }\n"
+                + function("install-rtk-ubuntu.sh", "run_rtk_init") + "\nrun_rtk_init\n")
+        self.run_shell(code)
+        self.assertEqual(log.read_text().splitlines(), [
+            "init --global --auto-patch --hook-only --no-trust-filters",
+            "init --global --codex --no-trust-filters"])
+
     def test_ccusage_settings_are_merged(self):
         config = self.base / "claude/ccusage.json"
         def run(settings):

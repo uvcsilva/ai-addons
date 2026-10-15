@@ -397,7 +397,7 @@ opção, vale o padrão do addon e a configuração existente é preservada.
 | Serena | `modes` | lista (ex.: `planning`, `editing`, `interactive`, `one-shot`, `no-onboarding`) | Modos adicionais (`--add-mode`); `no-memories` é sempre aplicado. |
 | Serena | `ls-dependencies` | lista (ex.: `python`, `typescript`, `go`) | Pré-baixa language servers com `serena download-ls-dependencies`. |
 | Context7 | `api-key-from-env` | flag | Grava a chave de `CONTEXT7_API_KEY` como `--api-key` do MCP em cada cliente. |
-| RTK | `init-mode` | `default`, `hook-only` | Claude/Codex: hook + `RTK.md`, ou somente o hook. |
+| RTK | `init-mode` | `default`, `hook-only` | Claude: hook + `RTK.md`, ou somente o hook. O Codex sempre recebe hook + `AGENTS.md`/`RTK.md`, pois `rtk init --codex` recusa `--hook-only`. |
 | RTK | `trust-filters` | **valor** `true`/`false` | Confiar nos filtros personalizados detectados (`--trust-filters`/`--no-trust-filters`). |
 | RTK | `telemetry` | `enable`, `disable` | Consentimento de telemetria (`rtk telemetry`). |
 | RTK | `recall` | `sqlite`, `tee`, `disabled` | Recuperação da saída completa (`rtk config recall`). |
@@ -641,7 +641,7 @@ com sucesso.
 ## 9. Validação e limites conhecidos
 
 Em **15/10/2026**, os oito scripts passaram pela verificação de sintaxe Bash e pelo
-`shellcheck -S warning`, e os **34 testes** de [tests/test_installers.py](tests/test_installers.py)
+`shellcheck -S warning`, e os **36 testes** de [tests/test_installers.py](tests/test_installers.py)
 passaram em Ubuntu 24.04. O mesmo conjunto roda no CI do GitLab ([.gitlab-ci.yml](.gitlab-ci.yml)).
 A suíte cobre instalação Go simulada, checksum, preservação de ferramentas existentes,
 limites de compilação do `gopls`, blocos de instruções, timeout MCP do Claude,

@@ -31,6 +31,7 @@ RTK_EXCLUDE=""
 RTK_TRACKING=""
 RTK_HISTORY_DAYS=""
 RTK_INIT_FLAGS=()
+RTK_CLAUDE_FLAGS=()
 CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
 OC_CONFIG_FILE=""
@@ -55,7 +56,8 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
   --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
   --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
-  --init-mode default|hook-only  Claude/Codex: hook + RTK.md (padrao) ou somente hook.
+  --init-mode default|hook-only  Claude: hook + RTK.md (padrao) ou somente hook.
+                                 Codex sempre usa hook + AGENTS.md/RTK.md.
   --trust-filters true|false     Confiar nos filtros personalizados detectados.
   --telemetry enable|disable     Consentimento de telemetria (rtk telemetry).
   --recall sqlite|tee|disabled   Recuperacao da saida completa (rtk config recall).
@@ -136,8 +138,11 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
-case "$RTK_INIT_MODE" in default) ;; hook-only) RTK_INIT_FLAGS+=(--hook-only) ;; *) printf 'Use --init-mode default ou hook-only\n' >&2; exit 2 ;; esac
+# rtk init --codex recusa --hook-only; esse modo vale so para o Claude.
+case "$RTK_INIT_MODE" in default) ;; hook-only) RTK_CLAUDE_FLAGS+=(--hook-only) ;; *) printf 'Use --init-mode default ou hook-only\n' >&2; exit 2 ;; esac
 case "$RTK_TRUST" in '') ;; true) RTK_INIT_FLAGS+=(--trust-filters) ;; false) RTK_INIT_FLAGS+=(--no-trust-filters) ;; *) printf 'Use --trust-filters true ou false\n' >&2; exit 2 ;; esac
+RTK_CLAUDE_DESC="${RTK_CLAUDE_FLAGS[*]:-} ${RTK_INIT_FLAGS[*]:-}"
+RTK_CLAUDE_DESC="${RTK_CLAUDE_DESC# }"; RTK_CLAUDE_DESC="${RTK_CLAUDE_DESC% }"
 case "$RTK_TELEMETRY" in ''|enable|disable) ;; *) printf 'Use --telemetry enable ou disable\n' >&2; exit 2 ;; esac
 case "$RTK_RECALL" in ''|sqlite|tee|disabled) ;; *) printf 'Use --recall sqlite, tee ou disabled\n' >&2; exit 2 ;; esac
 case "$RTK_AWARENESS" in ''|default|high|full) ;; *) printf 'Use --awareness default, high ou full\n' >&2; exit 2 ;; esac
@@ -158,7 +163,7 @@ Simulacao de RTK: sem alteracoes e sem acesso a rede.
   • Exigir Ubuntu, usuario sem sudo e: curl, python3, sha256sum, flock.
   • Instalar RTK em ~/.local/bin com SHA-256 verificado.
   • Hooks em Claude/Codex; regras nos quatro novos clientes selecionados.
-  • Init: ${RTK_INIT_FLAGS[*]:-padrao}; telemetria: ${RTK_TELEMETRY:-preservar}; recall: ${RTK_RECALL:-preservar}.
+  • Init Claude: ${RTK_CLAUDE_DESC:-padrao}; Codex: ${RTK_INIT_FLAGS[*]:-padrao}; telemetria: ${RTK_TELEMETRY:-preservar}; recall: ${RTK_RECALL:-preservar}.
   • config.toml ($RTK_CONFIG): awareness=${RTK_AWARENESS:-preservar}, exclude_commands=${RTK_EXCLUDE:-preservar}, tracking=${RTK_TRACKING:-preservar}, history_days=${RTK_HISTORY_DAYS:-preservar}.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
@@ -278,6 +283,12 @@ assert_regular_or_absent "$LOCAL_BIN/rtk"
 backup_path "$LOCAL_BIN/rtk"
 assert_regular_or_absent "$RTK_CONFIG"
 backup_path "$RTK_CONFIG"
+
+# rtk init --codex recusa --hook-only, --auto-patch e --no-patch; o Claude aceita todos.
+run_rtk_init() {
+  if selected claude; then "$LOCAL_BIN/rtk" init --global --auto-patch ${RTK_CLAUDE_FLAGS[@]+"${RTK_CLAUDE_FLAGS[@]}"} ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
+  if selected codex; then "$LOCAL_BIN/rtk" init --global --codex ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
+}
 
 # Edita somente as chaves pedidas no config.toml do RTK, preservando o resto do arquivo.
 set_rtk_config() {
@@ -658,8 +669,7 @@ printf 'RTK instalado: %s\n' "$RTK_TAG"
 if [[ -n "$RTK_TELEMETRY" ]]; then "$LOCAL_BIN/rtk" telemetry "$RTK_TELEMETRY"; fi
 if [[ -n "$RTK_RECALL" ]]; then "$LOCAL_BIN/rtk" config recall "$RTK_RECALL"; fi
 set_rtk_config
-if selected claude; then "$LOCAL_BIN/rtk" init --global --auto-patch ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
-if selected codex; then "$LOCAL_BIN/rtk" init --global --codex ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
+run_rtk_init
 "$LOCAL_BIN/rtk" --version
 if selected cline || selected opencode || selected copilot || selected vscode; then
   "$LOCAL_BIN/rtk" init --agent cline
