@@ -1,0 +1,70 @@
+{
+  "clients": "all",
+  "options": {
+    "cline-config": null,
+    "vscode-user-dir": null,
+    "opencode-major": null,
+    "project-dir": null
+  },
+  "bootstrap": {
+    "enabled": true,
+    "clients": "all",
+    "upgrade": true,
+    "with-opencode": true
+  },
+  "addons": {
+    "engram": {
+      "enabled": true,
+      "tools": "agent"
+    },
+    "serena": {
+      "enabled": true,
+      "with-go": false,
+      "check-go-project": null,
+      "language-backend": null,
+      "agent-interface": null,
+      "enable-web-dashboard": null,
+      "open-web-dashboard": null,
+      "log-level": null,
+      "tool-timeout": null,
+      "modes": ["planning", "editing"],
+      "ls-dependencies": []
+    },
+    "context7": {
+      "enabled": true,
+      "api-key-from-env": false
+    },
+    "rtk": {
+      "enabled": true,
+      "init-mode": "hook-only",
+      "trust-filters": false,
+      "telemetry": "disable",
+      "recall": "sqlite",
+      "awareness": "high",
+      "exclude-commands": ["curl", "playwright"],
+      "tracking": true,
+      "history-days": 90
+    },
+    "ccusage": {
+      "enabled": true,
+      "settings": {
+        "defaults": {
+          "timezone": "America/Sao_Paulo",
+          "breakdown": true,
+          "offline": false
+        },
+        "commands": {
+          "daily": { "order": "desc" },
+          "weekly": { "startOfWeek": "monday" },
+          "blocks": { "tokenLimit": "500000", "sessionLength": 5 }
+        }
+      }
+    },
+    "ponytail": {
+      "enabled": true,
+      "mode": "ultra",
+      "quiet-startup": true,
+      "hide-status": false
+    }
+  }
+}

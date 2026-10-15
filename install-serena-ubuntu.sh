@@ -23,6 +23,15 @@ CLIENTS="claude,codex"
 PROJECT_DIR=""
 WITH_GO=0
 CHECK_GO_PROJECT=""
+SERENA_BACKEND=""
+SERENA_INTERFACE=""
+SERENA_DASHBOARD=""
+SERENA_OPEN_DASHBOARD=""
+SERENA_LOG_LEVEL=""
+SERENA_TOOL_TIMEOUT=""
+SERENA_MODES=""
+SERENA_LS_DEPS=""
+SERENA_EXTRA=()
 CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
 OC_CONFIG_FILE=""
@@ -49,6 +58,15 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
   --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
   --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
+  --language-backend LSP|JetBrains  Backend de analise de codigo.
+  --agent-interface tools|REPL      Uma ferramenta por operacao ou serena_repl.
+  --enable-web-dashboard true|false Dashboard web do Serena.
+  --open-web-dashboard true|false   Abrir o dashboard no navegador ao iniciar.
+  --log-level NIVEL      DEBUG, INFO, WARNING, ERROR ou CRITICAL.
+  --tool-timeout SEG     Tempo limite das ferramentas, em segundos.
+  --modes LISTA          Modos extras (ex.: planning,editing), alem de no-memories.
+  --ls-dependencies LISTA  Pre-baixa language servers (ex.: python,typescript).
+                         Sem estas opcoes, valem os padroes do Serena.
 OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
 RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
@@ -90,10 +108,18 @@ while (($#)); do
     --help|-h) usage; exit 0 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --with-go) WITH_GO=1; shift ;;
-    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir|--check-go-project)
+    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir|--check-go-project|--language-backend|--agent-interface|--enable-web-dashboard|--open-web-dashboard|--log-level|--tool-timeout|--modes|--ls-dependencies)
       (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
       case "$1" in
         --clients) CLIENTS="$2" ;;
+        --language-backend) SERENA_BACKEND="$2" ;;
+        --agent-interface) SERENA_INTERFACE="$2" ;;
+        --enable-web-dashboard) SERENA_DASHBOARD="$2" ;;
+        --open-web-dashboard) SERENA_OPEN_DASHBOARD="$2" ;;
+        --log-level) SERENA_LOG_LEVEL="$2" ;;
+        --tool-timeout) SERENA_TOOL_TIMEOUT="$2" ;;
+        --modes) SERENA_MODES="$2" ;;
+        --ls-dependencies) SERENA_LS_DEPS="$2" ;;
         --cline-config) CLINE_CONFIG="$2" ;;
         --vscode-user-dir) VSCODE_USER_DIR="$2" ;;
         --opencode-major) OPENCODE_MAJOR="$2" ;;
@@ -115,6 +141,28 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
+# Opcoes repassadas ao start-mcp-server oficial em todos os clientes.
+case "$SERENA_BACKEND" in ''|LSP|JetBrains) ;; *) printf 'Use --language-backend LSP ou JetBrains\n' >&2; exit 2 ;; esac
+case "$SERENA_INTERFACE" in ''|tools|REPL) ;; *) printf 'Use --agent-interface tools ou REPL\n' >&2; exit 2 ;; esac
+for value in "$SERENA_DASHBOARD" "$SERENA_OPEN_DASHBOARD"; do
+  case "$value" in ''|true|false) ;; *) printf 'Use true ou false nas opcoes de dashboard\n' >&2; exit 2 ;; esac
+done
+case "$SERENA_LOG_LEVEL" in ''|DEBUG|INFO|WARNING|ERROR|CRITICAL) ;; *) printf 'Use --log-level DEBUG, INFO, WARNING, ERROR ou CRITICAL\n' >&2; exit 2 ;; esac
+[[ -z "$SERENA_TOOL_TIMEOUT" || "$SERENA_TOOL_TIMEOUT" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { printf 'Use --tool-timeout em segundos\n' >&2; exit 2; }
+for value in "$SERENA_MODES" "$SERENA_LS_DEPS"; do
+  [[ -z "$value" || "$value" =~ ^[A-Za-z0-9_-]+(,[A-Za-z0-9_-]+)*$ ]] || { printf 'Use listas separadas por virgulas em --modes/--ls-dependencies\n' >&2; exit 2; }
+done
+[[ ",$SERENA_MODES," != *",no-memories,"* ]] || { printf 'no-memories ja e sempre aplicado; remova-o de --modes\n' >&2; exit 2; }
+[[ -z "$SERENA_BACKEND" ]] || SERENA_EXTRA+=(--language-backend "$SERENA_BACKEND")
+[[ -z "$SERENA_INTERFACE" ]] || SERENA_EXTRA+=(--agent-interface "$SERENA_INTERFACE")
+[[ -z "$SERENA_DASHBOARD" ]] || SERENA_EXTRA+=(--enable-web-dashboard "$SERENA_DASHBOARD")
+[[ -z "$SERENA_OPEN_DASHBOARD" ]] || SERENA_EXTRA+=(--open-web-dashboard "$SERENA_OPEN_DASHBOARD")
+[[ -z "$SERENA_LOG_LEVEL" ]] || SERENA_EXTRA+=(--log-level "$SERENA_LOG_LEVEL")
+[[ -z "$SERENA_TOOL_TIMEOUT" ]] || SERENA_EXTRA+=(--tool-timeout "$SERENA_TOOL_TIMEOUT")
+if [[ -n "$SERENA_MODES" ]]; then
+  IFS=, read -r -a serena_modes <<< "$SERENA_MODES"
+  for mode in "${serena_modes[@]}"; do SERENA_EXTRA+=(--add-mode "$mode"); done
+fi
 for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}" "${CHECK_GO_PROJECT:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
@@ -131,6 +179,7 @@ Simulacao de Serena: sem alteracoes e sem acesso a rede.
   • Instalar uv/uvx e Serena isolado com Python 3.13.
   • Registrar MCP com contexto de cada cliente e --add-mode no-memories.
   • Claude: garantir env.MCP_TIMEOUT >= 60000 no settings.json (partida a frio do uv).
+  • Opcoes extras do MCP: ${SERENA_EXTRA[*]:-nenhuma}; language servers pre-baixados: ${SERENA_LS_DEPS:-nenhum}.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Serena depois da instalacao.
@@ -375,6 +424,9 @@ if same(command, args):
     print("matching")
 elif legacy and same(legacy[0], legacy[1:]):
     print("legacy")
+elif command.startswith("/") and server.get("command") == command and server.get("type", "stdio") == "stdio":
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    print("legacy")
 else:
     raise SystemExit(f"Conflito: Claude MCP {name} ja existe com outra configuracao; nenhuma entrada foi sobrescrita")
 PY
@@ -406,6 +458,10 @@ def same(cmd, argv):
 if same(command, args):
     print("matching")
 elif legacy and same(legacy[0], legacy[1:]):
+    print("legacy")
+elif (command.startswith("/") and transport.get("type") == "stdio" and transport.get("command") == command
+      and server.get("enabled") is True):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
     print("legacy")
 else:
     raise SystemExit(f"Conflito: MCP Codex {name} diferente ou desabilitado; nenhuma entrada sobrescrita")
@@ -570,6 +626,11 @@ if kind=='opencode':
     if major=='1' and 'servers' in current: raise ValueError('Encontrado schema MCP v2; confira --opencode-major')
     if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
         raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
+def owned(node):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    if kind=='memory' or not isinstance(node,dict) or not args[0].startswith('/'): return False
+    command=node.get('command')
+    return command[:1]==[args[0]] if kind=='opencode' and isinstance(command,list) else command==args[0]
 text=original
 for path,expected,replace,legacy in changes:
     root,objects,spans=parse(text)
@@ -584,7 +645,7 @@ for path,expected,replace,legacy in changes:
             text=text[:close]+insertion+text[close:]; break
         if depth==len(path)-1:
             if node[key]!=expected:
-                if not replace and (legacy is None or node[key]!=legacy): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                if not replace and (legacy is None or node[key]!=legacy) and not owned(node[key]): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
                 a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
         node=node[key]
 # Verify all resulting settings before committing the file.
@@ -644,6 +705,7 @@ all_mcp() {
       if [[ "$client" == claude || "$client" == codex ]]; then
         argv=(start-mcp-server --context "$context" --project-from-cwd --add-mode no-memories)
       fi
+      argv+=(${SERENA_EXTRA[@]+"${SERENA_EXTRA[@]}"})
     fi
     case "$client" in
       claude|codex)
@@ -786,10 +848,16 @@ export UV_CACHE_DIR="$HOME_DIR/.cache/uv"
 "$LOCAL_BIN/uv" tool install --upgrade -p 3.13 serena-agent
 [[ -x "$LOCAL_BIN/serena" ]] || die 'uv nao criou ~/.local/bin/serena.'
 "$LOCAL_BIN/serena" start-mcp-server --help > "$TMP_WORKDIR/serena-help.txt"
-for flag in --context --project-from-cwd --add-mode; do
+for flag in --context --project-from-cwd --add-mode ${SERENA_EXTRA[@]+"${SERENA_EXTRA[@]}"}; do
+  [[ "$flag" == --* ]] || continue
   grep -Fq -- "$flag" "$TMP_WORKDIR/serena-help.txt" || die "Serena nao documenta $flag; servidor nao registrado."
 done
 if [[ "$WITH_GO" == 1 ]]; then prepare_go; fi
+if [[ -n "$SERENA_LS_DEPS" ]]; then
+  "$LOCAL_BIN/serena" --help | grep -Fq download-ls-dependencies || die 'Esta versao do Serena nao tem download-ls-dependencies.'
+  IFS=, read -r -a serena_ls <<< "$SERENA_LS_DEPS"
+  "$LOCAL_BIN/serena" download-ls-dependencies "${serena_ls[@]}"
+fi
 cat > "$TMP_WORKDIR/serena-rules.md" <<'RULES'
 ## Serena
 Before coding tasks, read the Serena initial instructions. Prefer its symbol and reference tools to explore and modify code. If the language backend fails, report it; an MCP registration does not prove the analyzer works.

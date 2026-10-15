@@ -1,0 +1,71 @@
+{
+  "clients": ["claude", "codex", "cline", "opencode", "copilot", "vscode"],
+  "options": {
+    "cline-config": "~/.cline/data/settings/cline_mcp_settings.json",
+    "vscode-user-dir": "~/.config/Code/User",
+    "opencode-major": 2,
+    "project-dir": "~/projetos/meu-app"
+  },
+  "bootstrap": {
+    "enabled": true,
+    "clients": "all",
+    "upgrade": true,
+    "with-opencode": true
+  },
+  "addons": {
+    "engram": {
+      "enabled": true,
+      "clients": "claude,codex,opencode",
+      "tools": "agent,admin"
+    },
+    "serena": {
+      "enabled": true,
+      "with-go": true,
+      "check-go-project": "~/projetos/api-go",
+      "language-backend": "LSP",
+      "agent-interface": "tools",
+      "enable-web-dashboard": true,
+      "open-web-dashboard": false,
+      "log-level": "WARNING",
+      "tool-timeout": 240,
+      "modes": ["planning", "editing"],
+      "ls-dependencies": ["python", "typescript", "go"]
+    },
+    "context7": {
+      "enabled": true,
+      "api-key-from-env": true
+    },
+    "rtk": {
+      "enabled": true,
+      "init-mode": "hook-only",
+      "trust-filters": false,
+      "telemetry": "disable",
+      "recall": "sqlite",
+      "awareness": "high",
+      "exclude-commands": ["curl", "playwright"],
+      "tracking": true,
+      "history-days": 90
+    },
+    "ccusage": {
+      "enabled": true,
+      "settings": {
+        "defaults": {
+          "timezone": "America/Sao_Paulo",
+          "breakdown": true,
+          "offline": false
+        },
+        "commands": {
+          "daily": { "order": "desc" },
+          "weekly": { "startOfWeek": "monday" },
+          "blocks": { "tokenLimit": "500000", "sessionLength": 5 }
+        }
+      }
+    },
+    "ponytail": {
+      "enabled": true,
+      "mode": "ultra",
+      "quiet-startup": true,
+      "hide-status": false
+    }
+  }
+}

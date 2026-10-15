@@ -4,12 +4,21 @@
 usuário. Suporte a Claude Code, Codex, Cline, OpenCode, Copilot CLI e Copilot no VS Code.
 OpenRouter é configurado como provedor dentro do cliente.
 
-Cada `.sh` é completo e pode ser copiado sozinho. Há seis instaladores de addons e
-um script de preparação, `install-dependencies-ubuntu.sh`. O script de preparação
-instala dependências e clientes conforme suas opções; os addons são instalados
-pelos outros seis scripts. Não há biblioteca externa compartilhada ou orquestrador.
+Cada instalador `.sh` é completo e pode ser copiado sozinho. Há seis instaladores de
+addons, um script de preparação, `install-dependencies-ubuntu.sh`, e um orquestrador
+opcional, `install-all-ubuntu.sh`. O script de preparação instala dependências e
+clientes conforme suas opções; os addons são instalados pelos outros seis scripts.
+O orquestrador só lê `addons.json` e chama esses sete scripts em sequência, com os
+argumentos do arquivo (seção 4.1). Não há biblioteca externa compartilhada.
 Os seis instaladores de addons compartilham um bloqueio de configuração; o script
 de preparação não participa desse bloqueio. Execute todos os scripts um por vez.
+
+Para instalar tudo de uma vez, com Ponytail no modo `ultra`:
+
+```bash
+bash install-all-ubuntu.sh --dry-run
+bash install-all-ubuntu.sh
+```
 
 ## 1. Compatibilidade real
 
@@ -24,8 +33,9 @@ de preparação não participa desse bloqueio. Execute todos os scripts um por v
 
 **Regras não equivalem a hooks/plugins.** Nos quatro novos clientes, o agente precisa
 seguir as instruções do RTK e chamar seus comandos; não há reescrita automática de
-comandos. Ponytail fornece as diretrizes de qualidade, sem seleção persistente de
-níveis, comandos `/ponytail` ou injeção automática em subagentes. Engram fornece as
+comandos. Ponytail fornece as diretrizes de qualidade no nível escolhido em `--mode`
+(padrão `ultra`), fixo nas regras: sem troca de nível por `/ponytail` ou injeção
+automática em subagentes. Engram fornece as
 ferramentas de memória e um protocolo resumido; salvar/recuperar depende do agente,
 sem hooks de ciclo de sessão ou recuperação automática após compactação.
 
@@ -240,8 +250,8 @@ peça ao Serena para ativar o caminho absoluto do projeto atual.
 
 `--project-dir` fixa um projeto para **Cline/OpenCode/VS Code**, na configuração global.
 Use apenas quando isso for intencional; não alterna automaticamente ao mudar de
-workspace. Alterar o projeto de uma entrada existente resulta em conflito que deve
-ser resolvido explicitamente. Essa opção não muda o diretório de instalação, nem
+workspace. Alterar o projeto em uma reexecução atualiza a entrada que este pacote
+registrou (seção 4.3). Essa opção não muda o diretório de instalação, nem
 configura o projeto do Engram ou dos três clientes CLI.
 
 ## 4. Ordem de execução
@@ -295,6 +305,129 @@ bash install-engram-ubuntu.sh --clients cline,opencode,copilot,vscode \
 Substitua o caminho de exemplo. Repita as mesmas opções de cliente/destino nos demais
 scripts. `ccusage` aceita as opções para padronizar a execução, mas instala somente
 a CLI de relatórios e não altera configurações dos clientes.
+
+### 4.1 Orquestrador e `addons.json`
+
+`install-all-ubuntu.sh` executa, nesta ordem e um por vez: bootstrap
+(`install-dependencies-ubuntu.sh`), Engram, Serena, Context7, RTK, ccusage e Ponytail.
+Os parâmetros vêm de `addons.json`, ao lado do script, ou de outro arquivo:
+
+```bash
+bash install-all-ubuntu.sh --config /caminho/absoluto/meus-addons.json
+```
+
+Antes de alterar qualquer coisa, o orquestrador valida o JSON e executa cada instalador
+com `--dry-run`. Se algum argumento for recusado, nada é instalado. Com `--dry-run`,
+o orquestrador para depois dessa conferência e mostra o plano de cada addon; o
+bootstrap só é exibido, pois não tem simulação. Na instalação, a primeira falha
+interrompe a sequência; corrija a causa e reexecute, pois as etapas já concluídas
+podem ser repetidas. O orquestrador exige Bash 4.4+ e `python3` para ler o JSON.
+
+O [addons.json](addons.json) incluído instala todos os addons em todos os clientes,
+com Ponytail em `ultra`. Ele lista todas as opções disponíveis; `null`, `false`, `[]`
+e `{}` significam "usar o padrão do addon". O [addons.exemple.json](addons.exemple.json)
+preenche todas as opções com valores de exemplo; copie-o e ajuste:
+
+```bash
+cp addons.exemple.json meus-addons.json
+bash install-all-ubuntu.sh --config "$PWD/meus-addons.json" --dry-run
+```
+
+| Chave | Efeito |
+|---|---|
+| `clients` | Texto (`"all"`, `"claude,codex"`) ou lista (`["codex"]`). Vai para o bootstrap e para os seis instaladores. Sem ela, cada script usa seu padrão. |
+| `options` | Opções comuns aos seis instaladores, como `cline-config`, `vscode-user-dir`, `opencode-major` e `project-dir`. |
+| `bootstrap` | `enabled`, `clients`, `upgrade` e `with-opencode`. `false` pula a preparação. |
+| `addons.NOME` | `enabled` e as opções daquele instalador (por exemplo, `mode` do Ponytail, `with-go` e `check-go-project` do Serena). Também aceita `clients`, que tem prioridade sobre o valor global. `false` pula o addon; um addon ausente é instalado com os padrões. |
+
+Cada chave vira uma opção do script: `"mode": "ultra"` vira `--mode ultra`;
+`true` vira só a flag (`"with-go": true` → `--with-go`); `false` ou `null` omitem a
+opção. Listas viram texto separado por vírgulas (`["planning", "editing"]` →
+`--modes planning,editing`) e objetos viram JSON (`settings` do ccusage). As opções
+marcadas como **valor** na seção 4.3 recebem `true`/`false` explícitos
+(`"open-web-dashboard": false` → `--open-web-dashboard false`); nelas, só `null`
+omite a opção. Uma opção de addon prevalece sobre a mesma opção em `options`.
+Caminhos podem começar com `~/`, que é expandido para o diretório do usuário. Chaves
+duplicadas, addons desconhecidos, `dry-run`/`help` e valores de outros tipos são
+recusados antes de qualquer execução; os valores de cada opção são conferidos pelo
+`--dry-run` do próprio instalador. Exemplo só para
+o Codex, com Go no Serena e Ponytail em `full`:
+
+```json
+{
+  "clients": "codex",
+  "addons": {
+    "serena": { "with-go": true, "check-go-project": "~/projetos/api" },
+    "ponytail": { "mode": "full" }
+  }
+}
+```
+
+### 4.2 Nível do Ponytail
+
+`install-ponytail-ubuntu.sh --mode lite|full|ultra` define o nível padrão; sem a opção,
+usa **`ultra`**, que acrescenta às regras: questionar o pedido antes de construir e
+recusar o que a necessidade não justifica. Em Claude e Codex, o instalador grava
+`defaultMode` em `${XDG_CONFIG_HOME:-~/.config}/ponytail/config.json`, preservando as
+outras chaves e fazendo backup. Esse arquivo é lido pelos hooks oficiais no início de
+cada sessão, e `/ponytail lite|full|ultra` continua trocando o nível durante a sessão.
+`PONYTAIL_DEFAULT_MODE` no ambiente tem prioridade sobre o arquivo; o instalador
+avisa quando ela tem outro valor. Nos quatro novos clientes, que só recebem regras,
+o nível é incorporado ao bloco gerenciado; para mudá-lo, reexecute com outro `--mode`.
+
+### 4.3 Opções de cada addon
+
+Levantadas nos repositórios oficiais em 15/10/2026 (seção 10). Todas valem tanto como
+opção do instalador (`--NOME VALOR`) quanto como chave em `addons.NOME` do JSON. Sem a
+opção, vale o padrão do addon e a configuração existente é preservada.
+
+| Addon | Opção | Valores | Efeito |
+|---|---|---|---|
+| Ponytail | `mode` | `lite`, `full`, `ultra` (padrão) | Nível padrão (seção 4.2). |
+| Ponytail | `quiet-startup` | **valor** `true`/`false` | `quietStartup` do `config.json`: oculta o aviso de início. |
+| Ponytail | `hide-status` | **valor** `true`/`false` | `hideStatus` do `config.json`: oculta o selo de nível. |
+| Engram | `tools` | `agent` (padrão), `admin`, `all` ou lista | Perfil de ferramentas do MCP (`engram mcp --tools=`). `admin` traz exclusão, estatísticas, linha do tempo e mesclagem. |
+| Serena | `with-go`, `check-go-project` | flag / caminho | Go e `gopls`; teste real de símbolos (seção 3). |
+| Serena | `language-backend` | `LSP`, `JetBrains` | Backend de análise de código. `JetBrains` exige o plugin do Serena na IDE. |
+| Serena | `agent-interface` | `tools`, `REPL` | Uma ferramenta por operação, ou execução de Python pela ferramenta `serena_repl`. |
+| Serena | `enable-web-dashboard` | **valor** `true`/`false` | Dashboard web do Serena. |
+| Serena | `open-web-dashboard` | **valor** `true`/`false` | Abrir o dashboard no navegador a cada início do MCP. |
+| Serena | `log-level` | `DEBUG` … `CRITICAL` | Nível de log. |
+| Serena | `tool-timeout` | segundos | Tempo limite das ferramentas. |
+| Serena | `modes` | lista (ex.: `planning`, `editing`, `interactive`, `one-shot`, `no-onboarding`) | Modos adicionais (`--add-mode`); `no-memories` é sempre aplicado. |
+| Serena | `ls-dependencies` | lista (ex.: `python`, `typescript`, `go`) | Pré-baixa language servers com `serena download-ls-dependencies`. |
+| Context7 | `api-key-from-env` | flag | Grava a chave de `CONTEXT7_API_KEY` como `--api-key` do MCP em cada cliente. |
+| RTK | `init-mode` | `default`, `hook-only` | Claude/Codex: hook + `RTK.md`, ou somente o hook. |
+| RTK | `trust-filters` | **valor** `true`/`false` | Confiar nos filtros personalizados detectados (`--trust-filters`/`--no-trust-filters`). |
+| RTK | `telemetry` | `enable`, `disable` | Consentimento de telemetria (`rtk telemetry`). |
+| RTK | `recall` | `sqlite`, `tee`, `disabled` | Recuperação da saída completa (`rtk config recall`). |
+| RTK | `awareness` | `default`, `high`, `full` | Quanto as instruções do `init` contam ao agente sobre o RTK. |
+| RTK | `exclude-commands` | lista | Comandos nunca reescritos (`hooks.exclude_commands`). |
+| RTK | `tracking`, `history-days` | **valor** `true`/`false`; inteiro | Registro local de economia de tokens e dias de histórico. |
+| ccusage | `settings` | objeto | Conteúdo no formato do `ccusage.json` oficial (`defaults`, `commands` e seções por agente), mesclado em `~/.config/claude/ccusage.json` (ou no primeiro diretório de `CLAUDE_CONFIG_DIR`). |
+
+Detalhes:
+
+- **Ponytail, RTK e ccusage** editam somente as chaves pedidas nos arquivos oficiais
+  (`~/.config/ponytail/config.json`, `${XDG_CONFIG_HOME:-~/.config}/rtk/config.toml` e
+  `ccusage.json`), com backup. O RTK aplica telemetria, `recall` e `config.toml` antes do
+  `rtk init`, porque `awareness` muda as instruções gravadas por ele. Uma tabela TOML
+  duplicada, chave fora de tabela ou lista em várias linhas é recusada sem alteração.
+- **Serena e Engram** acrescentam as opções aos argumentos do MCP em todos os clientes
+  selecionados. **Context7** faz o mesmo com a chave. Uma entrada que já usa o binário
+  instalado por este pacote (`~/.local/bin/...`) é atualizada com os novos argumentos;
+  qualquer outra entrada com o mesmo nome continua recusada como conflito. Por isso,
+  reexecutar **sem** uma opção também a remove: por exemplo, rodar sem
+  `api-key-from-env` registra o Context7 sem chave.
+- **Chave do Context7:** a chave nunca vai no JSON. Exporte-a antes
+  (`export CONTEXT7_API_KEY=...`); ela fica gravada nas configurações MCP dos clientes
+  e pode aparecer no log privado do instalador, pois os CLIs ecoam o comando registrado.
+- **Fora do escopo do instalador:** opções que só existem como variável de ambiente do
+  processo do agente, como `PONYTAIL_SUBAGENT_MATCHER`, `PONYTAIL_MAP`,
+  `PONYTAIL_MAP_CHARS`, `ENGRAM_DATA_DIR`, `ENGRAM_PORT` e `RTK_TELEMETRY_DISABLED`, e
+  opções de uso pontual (`engram mcp --project`, transportes HTTP do Serena/Context7,
+  comandos de relatório do ccusage). Defina-as no ambiente que inicia os agentes, se
+  precisar.
 
 ## 5. OpenRouter
 
@@ -379,7 +512,7 @@ Reinicie os clientes e faça a conferência no ambiente Ubuntu:
    Para validar persistência, salve uma informação de teste sem dados privados e
    recupere-a em outra sessão/cliente. Exclua o registro de teste depois.
 5. Confira uma consulta de documentação com Context7. No RTK por regras, observe se o
-   agente realmente usa `rtk` nos comandos compatíveis. Confirme as regras Ponytail.
+   agente realmente usa `rtk` nos comandos compatíveis. Confirme as regras Ponytail e o nível ativo: em Claude/Codex, `/ponytail` sem argumento mostra o nível atual.
 
 Relatórios ccusage, conforme fontes documentadas e versão instalada:
 
@@ -434,7 +567,8 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   gerenciados não são duplicados. **Não é uma instalação reproduzível com lockfile**.
 - Os editores JSON/JSONC preservam comentários e outras entradas; rejeitam chaves
   duplicadas, formato inválido, schema conflitante e servidores diferentes com o
-  mesmo nome. TOML é editado de modo conservador. Não há sobrescrita silenciosa de MCP.
+  mesmo nome. TOML é editado de modo conservador. Só entradas MCP que já usam o binário
+instalado por este pacote têm os argumentos atualizados; as demais são recusadas.
 - Instruções existentes são preservadas; apenas blocos `six-addons:...` são atualizados.
   Arquivos gerenciados de instruções VS Code preexistentes sem marcador são recusados.
 - Configurações por link simbólico são recusadas. Faça alterações deliberadas no alvo
@@ -458,7 +592,8 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   conflitante interrompem o script. Resolva a causa indicada e reexecute.
 
 O pacote não adiciona Headroom, OpenSpec, Beads, Context Mode, jCodeMunch,
-codebase-memory-mcp ou orquestrador; também não remove instalações anteriores deles.
+codebase-memory-mcp ou orquestradores de agentes; também não remove instalações
+anteriores deles.
 
 ### Manutenção de espaço
 
@@ -505,17 +640,21 @@ com sucesso.
 
 ## 9. Validação e limites conhecidos
 
-Em **15/10/2026**, os sete scripts passaram pela verificação de sintaxe Bash e pelo
-`shellcheck -S warning`, e os **21 testes** de [tests/test_installers.py](tests/test_installers.py)
+Em **15/10/2026**, os oito scripts passaram pela verificação de sintaxe Bash e pelo
+`shellcheck -S warning`, e os **34 testes** de [tests/test_installers.py](tests/test_installers.py)
 passaram em Ubuntu 24.04. O mesmo conjunto roda no CI do GitLab ([.gitlab-ci.yml](.gitlab-ci.yml)).
 A suíte cobre instalação Go simulada, checksum, preservação de ferramentas existentes,
 limites de compilação do `gopls`, blocos de instruções, timeout MCP do Claude,
 backups de plugins, memória nativa por cliente, edição JSONC/TOML, migração de MCP
 legado, remoção de versões antigas do Node, helpers compartilhados, `--dry-run`,
-JSON vazio, `GITHUB_TOKEN` fora da linha de comando e seleção/atualização de clientes
-no bootstrap.
+JSON vazio, `GITHUB_TOKEN` fora da linha de comando, seleção/atualização de clientes
+no bootstrap, nível e opções do Ponytail, opções extras do Serena, edição do
+`config.toml` do RTK, mesclagem do `ccusage.json`, atualização de MCP próprio e o
+orquestrador (ordem e montagem dos argumentos, listas/objetos/booleanos, recusa de
+JSON inválido, conferência prévia, parada na primeira falha e `--dry-run` real de
+`addons.json` e `addons.exemple.json`).
 
-Para conferir localmente a sintaxe dos sete scripts sem instalar nada:
+Para conferir localmente a sintaxe dos oito scripts sem instalar nada:
 
 ```bash
 (
@@ -526,7 +665,7 @@ done
 ```
 
 Os testes podem ser executados sem rede e sem modificar as configurações reais. Fora
-do Ubuntu (por exemplo, no macOS), os testes que dependem de Bash 4+, GNU `cp` ou
+do Ubuntu (por exemplo, no macOS), os testes que dependem de Bash 4/4.4+, GNU `cp` ou
 Python 3.11+ (`tomllib`) são pulados automaticamente:
 
 ```bash
@@ -547,6 +686,7 @@ Referências para os formatos e limites de integração usados pelos scripts:
 - [Engram — setup](https://github.com/Gentleman-Programming/engram/blob/main/docs/AGENT-SETUP.md), [documentação](https://github.com/Gentleman-Programming/engram/blob/main/DOCS.md) e [implementação](https://github.com/Gentleman-Programming/engram/tree/main/internal/setup).
 - [Context7](https://github.com/upstash/context7), [ccusage e fontes suportadas](https://github.com/ccusage/ccusage/blob/main/README.md).
 - [Ponytail — instalação e portabilidade](https://github.com/DietrichGebert/ponytail/blob/main/INSTALL.md).
+- Opções da seção 4.3: [Ponytail `ponytail-config.js`](https://github.com/DietrichGebert/ponytail/blob/main/hooks/ponytail-config.js), [Engram `engram mcp`](https://github.com/Gentleman-Programming/engram/blob/main/cmd/engram/main.go), [Serena `start-mcp-server`](https://github.com/oraios/serena/blob/main/src/serena/cli.py), [Context7 MCP](https://github.com/upstash/context7/blob/master/packages/mcp/src/index.ts), [RTK `config.toml`](https://github.com/rtk-ai/rtk/blob/develop/src/core/config.rs) e [ccusage `ccusage.json`](https://github.com/ccusage/ccusage/blob/main/docs/guide/config-files.md).
 - [Cline MCP](https://docs.cline.bot/mcp/mcp-overview), [Cline regras](https://docs.cline.bot/customization/cline-rules).
 - [OpenCode V1 MCP](https://opencode.ai/docs/mcp-servers/), [V2 MCP](https://dev.opencode.ai/v2/docs/mcp-servers/), [V2 instruções](https://dev.opencode.ai/v2/docs/instructions/).
 - [Copilot CLI — diretórios e precedência](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference).

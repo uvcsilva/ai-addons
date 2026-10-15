@@ -21,6 +21,9 @@ CODEX_DIR="${CODEX_HOME:-$HOME_DIR/.codex}"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
 CLIENTS="claude,codex"
 PROJECT_DIR=""
+CCUSAGE_SETTINGS=""
+# ccusage le o primeiro diretorio de CLAUDE_CONFIG_DIR, ou ~/.config/claude.
+if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then CCUSAGE_CONFIG="${CLAUDE_CONFIG_DIR%%,*}/ccusage.json"; else CCUSAGE_CONFIG="$HOME_DIR/.config/claude/ccusage.json"; fi
 CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
 OC_CONFIG_FILE=""
@@ -45,6 +48,9 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
   --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
   --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
+  --settings JSON        Objeto no formato do ccusage.json oficial (defaults, commands,
+                         por agente), mesclado em $CCUSAGE_CONFIG.
+                         Ex.: '{"defaults":{"timezone":"America/Sao_Paulo"}}'.
 OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
 RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
@@ -85,10 +91,11 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir)
+    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir|--settings)
       (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
       case "$1" in
         --clients) CLIENTS="$2" ;;
+        --settings) CCUSAGE_SETTINGS="$2" ;;
         --cline-config) CLINE_CONFIG="$2" ;;
         --vscode-user-dir) VSCODE_USER_DIR="$2" ;;
         --opencode-major) OPENCODE_MAJOR="$2" ;;
@@ -109,6 +116,11 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
+if [[ -n "$CCUSAGE_SETTINGS" ]]; then
+  command -v python3 >/dev/null 2>&1 || { printf 'python3 e necessario para --settings\n' >&2; exit 2; }
+  python3 -c 'import json,sys; v=json.loads(sys.argv[1]); sys.exit(0 if isinstance(v,dict) and v else 1)' "$CCUSAGE_SETTINGS" 2>/dev/null \
+    || { printf 'Use --settings com um objeto JSON nao vazio (formato do ccusage.json)\n' >&2; exit 2; }
+fi
 for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
@@ -124,6 +136,7 @@ Simulacao de ccusage: sem alteracoes e sem acesso a rede.
   • Exigir Ubuntu, usuario sem sudo e: node, npm, flock, python3.
   • Instalar ccusage no prefixo ~/.local e conferir versao/ajuda.
   • Nenhuma configuracao de cliente sera alterada.
+  • ccusage.json: $([[ -n "$CCUSAGE_SETTINGS" ]] && echo "mesclar --settings em $CCUSAGE_CONFIG" || echo 'nao alterado').
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir ccusage depois da instalacao.
@@ -236,7 +249,44 @@ fi
 fi
 
 
-
+# Mescla --settings no ccusage.json do usuario, preservando as demais chaves.
+set_ccusage_settings() {
+  assert_regular_or_absent "$CCUSAGE_CONFIG"
+  backup_path "$CCUSAGE_CONFIG"
+  python3 - "$CCUSAGE_CONFIG" "$CCUSAGE_SETTINGS" <<'PY'
+import json, os, pathlib, stat, sys, tempfile
+p, settings = pathlib.Path(sys.argv[1]), json.loads(sys.argv[2])
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding="utf-8-sig") or "{}")
+    except ValueError as exc:
+        raise SystemExit(f"{p} nao e JSON valido; nenhuma alteracao feita: {exc}")
+    if not isinstance(data, dict):
+        raise SystemExit(f"{p} precisa conter um objeto JSON no topo")
+    mode = stat.S_IMODE(p.stat().st_mode)
+else:
+    data, mode = {"$schema": "https://ccusage.com/config-schema.json"}, 0o600
+def merge(base, extra):
+    # Objetos sao mesclados; outros valores substituem os existentes.
+    for key, value in extra.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge(base[key], value)
+        else:
+            base[key] = value
+merge(data, settings)
+p.parent.mkdir(parents=True, exist_ok=True)
+fd, tmp = tempfile.mkstemp(prefix=".ccusage.json.", dir=str(p.parent))
+try:
+    os.fchmod(fd, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    os.replace(tmp, p)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+print(f"ccusage.json atualizado: {p}")
+PY
+}
 
 node --version
 npm --version
@@ -244,6 +294,7 @@ npm install --global --prefix "$HOME_DIR/.local" --registry=https://registry.npm
 [[ -x "$LOCAL_BIN/ccusage" ]] || die 'ccusage nao apareceu em ~/.local/bin.'
 "$LOCAL_BIN/ccusage" --version
 "$LOCAL_BIN/ccusage" --help >/dev/null
+if [[ -n "$CCUSAGE_SETTINGS" ]]; then set_ccusage_settings; fi
 
 printf '\nConcluido: ccusage instalado/configurado para o usuario.\n'
 printf 'Backup: %s\nLog: %s\n' "$BACKUP_DIR" "$LOG_FILE"

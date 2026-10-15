@@ -17,7 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 _BASE_ENV = dict(os.environ, PATH="/usr/bin:/bin")
 HAS_BASH4 = subprocess.run(["bash", "-c", "((BASH_VERSINFO[0] >= 4))"], env=_BASE_ENV).returncode == 0
 HAS_GNU_CP = subprocess.run(["cp", "--version"], env=_BASE_ENV, capture_output=True).returncode == 0
+HAS_BASH44 = subprocess.run(["bash", "-c", "((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] >= 404))"],
+                            env=_BASE_ENV).returncode == 0
 needs_bash4 = unittest.skipUnless(HAS_BASH4, "requires Bash 4+ (mapfile)")
+needs_bash44 = unittest.skipUnless(HAS_BASH44, "requires Bash 4.4+ (mapfile -d)")
 needs_gnu_cp = unittest.skipUnless(HAS_GNU_CP, "requires GNU cp (--reflink)")
 needs_tomllib = unittest.skipUnless(sys.version_info >= (3, 11), "requires Python 3.11+ (tomllib)")
 
@@ -169,7 +172,7 @@ class InstallersTest(unittest.TestCase):
         # Scripts stay standalone, so every helper copy must change together.
         copies = {}
         for script in sorted(ROOT.glob("install-*-ubuntu.sh")):
-            if script.name == "install-dependencies-ubuntu.sh":
+            if script.name in ("install-dependencies-ubuntu.sh", "install-all-ubuntu.sh"):
                 continue
             for m in re.finditer(r"^(\w+)\(\) \{\n.*?^\}", script.read_text(), re.M | re.S):
                 if m.group(1) == "usage" or (m.group(1) == "all_mcp" and "serena" in script.name):
@@ -276,6 +279,76 @@ class InstallersTest(unittest.TestCase):
         self.run_shell(code)
         self.assertNotIn("Authorization", args.read_text())
         self.assertFalse(header.exists())
+
+    def test_entry_using_installed_binary_gets_new_options(self):
+        target = self.base / "mcp.json"
+        target.write_text(json.dumps({"mcpServers": {"context7": {
+            "command": "/bin/c7", "args": ["--api-key", "old"], "disabled": False, "autoApprove": []}}}))
+        self.assertEqual(self.edit_json(target, command="/bin/c7").returncode, 0)
+        self.assertEqual(json.loads(target.read_text())["mcpServers"]["context7"]["args"], [])
+        # A relative command was not installed by this package: still a conflict.
+        target.write_text(json.dumps({"mcpServers": {"context7": {"command": "c7", "args": ["x"]}}}))
+        self.assertNotEqual(self.edit_json(target, command="c7").returncode, 0)
+
+    def test_serena_extra_options_reach_every_client(self):
+        code = ("CLIENTS=claude,cline\nPROJECT_DIR=\nSERENA_EXTRA=(--log-level INFO --add-mode planning)\n"
+                "selected() { [[ \",$CLIENTS,\" == *\",$1,\"* ]]; }\n"
+                "ensure_claude_mcp() { echo \"claude $*\"; }\nnew_client_mcp() { echo \"$2 ${*:4}\"; }\n"
+                + function("install-serena-ubuntu.sh", "all_mcp") + "\nall_mcp apply serena /bin/serena\n")
+        lines = self.run_shell(code).stdout.splitlines()
+        self.assertEqual(lines, [
+            "claude serena /bin/serena start-mcp-server --context claude-code --project-from-cwd "
+            "--add-mode no-memories --log-level INFO --add-mode planning",
+            "cline /bin/serena start-mcp-server --context ide --add-mode no-memories --log-level INFO --add-mode planning"])
+
+    @needs_tomllib
+    def test_rtk_config_edit_keeps_other_settings(self):
+        import tomllib
+        config = self.base / "rtk/config.toml"
+        def run(awareness="", exclude="", tracking="", history=""):
+            return self.run_shell(f"RTK_CONFIG={shlex.quote(str(config))}\nRTK_AWARENESS={awareness}\n"
+                                  f"RTK_EXCLUDE={shlex.quote(exclude)}\nRTK_TRACKING={tracking}\nRTK_HISTORY_DAYS={history}\n"
+                                  + function("install-rtk-ubuntu.sh", "set_rtk_config") + "\nset_rtk_config\n",
+                                  check=False)
+        self.assertEqual(run().returncode, 0)  # nothing requested: no file
+        self.assertFalse(config.exists())
+        self.assertEqual(run("high", "curl, playwright", "false", "90").returncode, 0)
+        self.assertEqual(tomllib.loads(config.read_text()), {
+            "awareness": {"level": "high"}, "hooks": {"exclude_commands": ["curl", "playwright"]},
+            "tracking": {"enabled": False, "history_days": 90}})
+        config.write_text('# mine\n[display]\ncolors = false\n\n[tracking]\nenabled = true # keep note\n')
+        self.assertEqual(run(tracking="false").returncode, 0)
+        data = tomllib.loads(config.read_text())
+        self.assertEqual(data, {"display": {"colors": False}, "tracking": {"enabled": False}})
+        self.assertIn("# mine", config.read_text())
+        first = config.read_text()
+        self.assertEqual(run(tracking="false").returncode, 0)
+        self.assertEqual(config.read_text(), first)
+        for bad in ('[hooks]\nexclude_commands = [\n  "a",\n]\n', 'awareness.level = "full"\n',
+                    "[tracking]\nenabled = true\n[tracking]\nhistory_days = 1\n"):
+            with self.subTest(bad=bad):
+                config.write_text(bad)
+                self.assertNotEqual(run("high", "x", "true").returncode, 0)
+                self.assertEqual(config.read_text(), bad)
+
+    def test_ccusage_settings_are_merged(self):
+        config = self.base / "claude/ccusage.json"
+        def run(settings):
+            return self.run_shell(f"CCUSAGE_CONFIG={shlex.quote(str(config))}\nCCUSAGE_SETTINGS={shlex.quote(settings)}\n"
+                                  "assert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
+                                  + function("install-ccusage-ubuntu.sh", "set_ccusage_settings")
+                                  + "\nset_ccusage_settings\n", check=False)
+        self.assertEqual(run('{"defaults": {"timezone": "UTC"}}').returncode, 0)
+        self.assertEqual(json.loads(config.read_text()),
+                         {"$schema": "https://ccusage.com/config-schema.json", "defaults": {"timezone": "UTC"}})
+        config.write_text('{"defaults": {"breakdown": true, "timezone": "X"}, "commands": {"daily": {"order": "asc"}}}')
+        self.assertEqual(run('{"defaults": {"timezone": "UTC"}, "commands": {"weekly": {"startOfWeek": "monday"}}}').returncode, 0)
+        self.assertEqual(json.loads(config.read_text()), {
+            "defaults": {"breakdown": True, "timezone": "UTC"},
+            "commands": {"daily": {"order": "asc"}, "weekly": {"startOfWeek": "monday"}}})
+        config.write_text("{broken")
+        self.assertNotEqual(run('{"defaults": {}}').returncode, 0)
+        self.assertEqual(config.read_text(), "{broken")
 
     def test_claude_mcp_legacy_entry_is_migrated(self):
         claude_json = self.base / ".claude.json"
@@ -399,6 +472,138 @@ class InstallersTest(unittest.TestCase):
         (prefix / "bin/tool").unlink()
         self.executable("tool", "exit 0\n")  # other origin: kept even with --upgrade
         self.assertEqual(run("true"), "")
+
+    def test_ponytail_default_mode_keeps_other_settings(self):
+        config = self.base / "ponytail/config.json"
+        def run(mode):
+            return self.run_shell(f"PONYTAIL_CONFIG={shlex.quote(str(config))}\nPONYTAIL_MODE={mode}\n"
+                                  "assert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
+                                  + function("install-ponytail-ubuntu.sh", "set_ponytail_default_mode")
+                                  + "\nset_ponytail_default_mode\n", check=False)
+        self.assertEqual(run("ultra").returncode, 0)  # absent file is created
+        self.assertEqual(json.loads(config.read_text()), {"defaultMode": "ultra"})
+        config.write_text('{"quietStartup": true, "defaultMode": "full"}')
+        self.assertEqual(run("ultra").returncode, 0)
+        self.assertEqual(json.loads(config.read_text()), {"quietStartup": True, "defaultMode": "ultra"})
+        self.assertEqual(run("lite\nPONYTAIL_QUIET=false\nPONYTAIL_HIDE=true").returncode, 0)
+        self.assertEqual(json.loads(config.read_text()),
+                         {"quietStartup": False, "defaultMode": "lite", "hideStatus": True})
+        config.write_text("{broken")
+        self.assertNotEqual(run("ultra").returncode, 0)
+        self.assertEqual(config.read_text(), "{broken")
+
+    def test_ponytail_rejects_unknown_mode(self):
+        result = subprocess.run(["bash", str(ROOT / "install-ponytail-ubuntu.sh"), "--mode", "max", "--dry-run"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        result = subprocess.run(["bash", str(ROOT / "install-ponytail-ubuntu.sh"), "--mode", "lite", "--dry-run"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("nivel lite", result.stdout)
+
+    SCRIPTS = {"bootstrap": "install-dependencies-ubuntu.sh", "engram": "install-engram-ubuntu.sh",
+               "serena": "install-serena-ubuntu.sh", "context7": "install-context7-ubuntu.sh",
+               "rtk": "install-rtk-ubuntu.sh", "ccusage": "install-ccusage-ubuntu.sh",
+               "ponytail": "install-ponytail-ubuntu.sh"}
+
+    def orchestrate(self, config, *args, fail=None):
+        # Fake installers log their arguments; `fail` maps a name to a shell condition that exits 3.
+        workdir, log = self.base / "pkg", self.base / "calls.log"
+        workdir.mkdir(exist_ok=True)
+        (workdir / "install-all-ubuntu.sh").write_text((ROOT / "install-all-ubuntu.sh").read_text())
+        for name, script in self.SCRIPTS.items():
+            check = f"if {fail[name]}; then exit 3; fi\n" if fail and name in fail else ""
+            (workdir / script).write_text(f"echo {name} \"$*\" >> {shlex.quote(str(log))}\n{check}")
+        (workdir / "addons.json").write_text(config if isinstance(config, str) else json.dumps(config))
+        log.write_text("")
+        env = dict(os.environ, HOME=str(self.base))
+        result = subprocess.run(["bash", str(workdir / "install-all-ubuntu.sh"), *args],
+                                env=env, capture_output=True, text=True)
+        return result, log.read_text().splitlines()
+
+    @needs_bash44
+    def test_orchestrator_builds_arguments_in_order(self):
+        config = {"clients": ["claude", "codex"], "options": {"cline-config": "~/cline.json"},
+                  "bootstrap": {"upgrade": True},
+                  "addons": {"serena": {"with-go": True, "check-go-project": None},
+                             "ccusage": False, "ponytail": {"mode": "ultra", "clients": "codex"}}}
+        result, calls = self.orchestrate(config)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cline = f"--cline-config {self.base}/cline.json"
+        addons = [f"engram --clients claude,codex {cline}",
+                  f"serena --clients claude,codex {cline} --with-go",
+                  f"context7 --clients claude,codex {cline}",
+                  f"rtk --clients claude,codex {cline}",
+                  f"ponytail --clients codex {cline} --mode ultra"]
+        self.assertEqual(calls, [c + " --dry-run" for c in addons]
+                         + ["bootstrap --clients claude,codex --upgrade"] + addons)
+
+    @needs_bash44
+    def test_orchestrator_converts_lists_objects_and_value_booleans(self):
+        config = {"bootstrap": False, "addons": {
+            "engram": False, "serena": {"modes": ["planning", "editing"], "ls-dependencies": [],
+                                        "open-web-dashboard": False, "enable-web-dashboard": None},
+            "context7": False, "rtk": {"exclude-commands": ["curl"], "trust-filters": False, "tracking": True},
+            "ccusage": {"settings": {"defaults": {"timezone": "UTC"}}},
+            "ponytail": {"quiet-startup": True, "hide-status": None}}}
+        result, calls = self.orchestrate(config, "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [
+            "serena --modes planning,editing --open-web-dashboard false --dry-run",
+            "rtk --exclude-commands curl --trust-filters false --tracking true --dry-run",
+            'ccusage --settings {"defaults": {"timezone": "UTC"}} --dry-run',
+            "ponytail --quiet-startup true --dry-run"])
+
+    @needs_bash44
+    def test_shipped_configs_pass_real_dry_runs(self):
+        home = self.base / "home"
+        home.mkdir()
+        env = dict(os.environ, HOME=str(home), CONTEXT7_API_KEY="test-key", XDG_STATE_HOME=str(home / "state"))
+        env.pop("XDG_CONFIG_HOME", None)
+        env.pop("CLAUDE_CONFIG_DIR", None)
+        for name in ("addons.json", "addons.exemple.json"):
+            with self.subTest(config=name):
+                result = subprocess.run(["bash", str(ROOT / "install-all-ubuntu.sh"), "--config", str(ROOT / name),
+                                         "--dry-run"], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.count("argumentos conferidos"), 6)
+        self.assertEqual(list(home.iterdir()), [])
+
+    @needs_bash44
+    def test_orchestrator_dry_run_changes_nothing(self):
+        result, calls = self.orchestrate({"bootstrap": False, "addons": {"ponytail": {"mode": "lite"}}},
+                                         "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 6)
+        self.assertTrue(all(c.endswith("--dry-run") for c in calls))
+        self.assertIn("ponytail --mode lite --dry-run", calls)
+
+    @needs_bash44
+    def test_orchestrator_rejects_bad_config_before_running(self):
+        for config in ('{"addons": {"unknown": true}}', '{"clients": "all", "clients": "codex"}',
+                       '{"addons": {"rtk": {"Bad_Key": 1}}}', '{"bootstrap": {"mode": "x"}}',
+                       '{"addons": {"rtk": {"dry-run": true}}}', '{"options": {"clients": "all"}}',
+                       '{"addons": {"rtk": {"x": [1]}}}', "[]", "{broken"):
+            with self.subTest(config=config):
+                result, calls = self.orchestrate(config)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(calls, [])
+
+    @needs_bash44
+    def test_orchestrator_preflight_failure_installs_nothing(self):
+        result, calls = self.orchestrate({}, fail={"rtk": '[[ " $* " == *" --dry-run "* ]]'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rtk", result.stderr)
+        self.assertFalse(any(c.startswith("bootstrap") for c in calls))
+        self.assertTrue(all(c.endswith("--dry-run") for c in calls))
+
+    @needs_bash44
+    def test_orchestrator_stops_at_first_failure(self):
+        result, calls = self.orchestrate({}, fail={"context7": '[[ " $* " != *" --dry-run "* ]]'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Falha em context7", result.stderr)
+        self.assertEqual([c.split()[0] for c in calls if not c.endswith("--dry-run")],
+                         ["bootstrap", "engram", "serena", "context7"])
 
     def test_dry_run_has_no_files(self):
         home = self.base / "empty-home"

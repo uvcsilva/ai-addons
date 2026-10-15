@@ -27,6 +27,10 @@ OC_CONFIG_FILE=""
 OPENCODE_MAJOR=""
 COPILOT_DIR="${COPILOT_HOME:-$HOME_DIR/.copilot}"
 VSCODE_USER_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/Code/User"
+PONYTAIL_MODE="ultra"
+PONYTAIL_QUIET=""
+PONYTAIL_HIDE=""
+PONYTAIL_CONFIG="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/ponytail/config.json"
 selected() { [[ ",$CLIENTS," == *",$1,"* ]]; }
 
 
@@ -45,6 +49,12 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
   --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
   --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
+  --mode lite|full|ultra Nivel padrao do Ponytail. Padrao: ultra.
+                         Claude/Codex: defaultMode em ~/.config/ponytail/config.json;
+                         novos clientes: nivel incorporado nas regras.
+  --quiet-startup true|false  quietStartup do config.json (oculta o aviso de inicio).
+  --hide-status true|false    hideStatus do config.json (oculta o selo de nivel).
+                              Sem a opcao, o valor existente e preservado.
 OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
 RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
@@ -85,10 +95,13 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir)
+    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir|--mode|--quiet-startup|--hide-status)
       (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
       case "$1" in
         --clients) CLIENTS="$2" ;;
+        --quiet-startup) PONYTAIL_QUIET="$2" ;;
+        --hide-status) PONYTAIL_HIDE="$2" ;;
+        --mode) PONYTAIL_MODE="$2" ;;
         --cline-config) CLINE_CONFIG="$2" ;;
         --vscode-user-dir) VSCODE_USER_DIR="$2" ;;
         --opencode-major) OPENCODE_MAJOR="$2" ;;
@@ -109,7 +122,11 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
-for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
+case "$PONYTAIL_MODE" in lite|full|ultra) ;; *) printf 'Use --mode lite, full ou ultra\n' >&2; exit 2 ;; esac
+for value in "$PONYTAIL_QUIET" "$PONYTAIL_HIDE"; do
+  case "$value" in ''|true|false) ;; *) printf 'Use true ou false em --quiet-startup/--hide-status\n' >&2; exit 2 ;; esac
+done
+for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}" "$PONYTAIL_CONFIG"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
 if [[ "$DRY_RUN" == 1 ]]; then
@@ -123,7 +140,9 @@ Simulacao de Ponytail: sem alteracoes e sem acesso a rede.
   Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
   • Exigir Ubuntu, usuario sem sudo e: git, node, python3, flock.
   • Plugin oficial em Claude/Codex selecionados.
-  • Regras oficiais incorporadas nos quatro novos clientes selecionados.
+  • Nivel padrao: $PONYTAIL_MODE (Claude/Codex: $PONYTAIL_CONFIG).
+  • quietStartup: ${PONYTAIL_QUIET:-preservar}; hideStatus: ${PONYTAIL_HIDE:-preservar}.
+  • Regras oficiais incorporadas nos quatro novos clientes selecionados, no nivel $PONYTAIL_MODE.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Ponytail depois da instalacao.
@@ -254,6 +273,43 @@ if source.get("source") != "github" or source.get("repo") != "DietrichGebert/pon
 print("matching")
 PY
 }
+# defaultMode e lido pelos hooks oficiais (ponytail-config.js) no inicio de cada sessao.
+set_ponytail_default_mode() {
+  assert_regular_or_absent "$PONYTAIL_CONFIG"
+  backup_path "$PONYTAIL_CONFIG"
+  python3 - "$PONYTAIL_CONFIG" "$PONYTAIL_MODE" "${PONYTAIL_QUIET:-}" "${PONYTAIL_HIDE:-}" <<'PY'
+import json, os, pathlib, stat, sys, tempfile
+p, mode, quiet, hide = pathlib.Path(sys.argv[1]), *sys.argv[2:]
+if p.exists():
+    try:
+        data = json.loads(p.read_text(encoding="utf-8-sig") or "{}")
+    except Exception as exc:
+        raise SystemExit(f"{p} nao e JSON valido; nenhuma alteracao feita: {exc}")
+    if not isinstance(data, dict):
+        raise SystemExit(f"{p} precisa conter um objeto JSON no topo")
+    file_mode = stat.S_IMODE(p.stat().st_mode)
+else:
+    data, file_mode = {}, 0o600
+wanted = {"defaultMode": mode}
+for key, value in (("quietStartup", quiet), ("hideStatus", hide)):
+    if value:
+        wanted[key] = value == "true"
+if any(data.get(key) != value for key, value in wanted.items()):
+    data.update(wanted)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".config.json.", dir=str(p.parent))
+    try:
+        os.fchmod(fd, file_mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        os.replace(tmp, p)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+print(f"Ponytail: {', '.join(f'{k}={v}' for k, v in wanted.items())} em {p}")
+PY
+}
+
 verify_plugins() {
   local name="$1"
   if selected claude; then claude plugin list --json > "$TMP_WORKDIR/claude-plugins.json"; fi
@@ -366,6 +422,11 @@ if kind=='opencode':
     if major=='1' and 'servers' in current: raise ValueError('Encontrado schema MCP v2; confira --opencode-major')
     if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
         raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
+def owned(node):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    if kind=='memory' or not isinstance(node,dict) or not args[0].startswith('/'): return False
+    command=node.get('command')
+    return command[:1]==[args[0]] if kind=='opencode' and isinstance(command,list) else command==args[0]
 text=original
 for path,expected,replace,legacy in changes:
     root,objects,spans=parse(text)
@@ -380,7 +441,7 @@ for path,expected,replace,legacy in changes:
             text=text[:close]+insertion+text[close:]; break
         if depth==len(path)-1:
             if node[key]!=expected:
-                if not replace and (legacy is None or node[key]!=legacy): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                if not replace and (legacy is None or node[key]!=legacy) and not owned(node[key]): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
                 a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
         node=node[key]
 # Verify all resulting settings before committing the file.
@@ -530,6 +591,11 @@ else
 fi
 fi
 verify_plugins ponytail
+if selected claude || selected codex; then
+  set_ponytail_default_mode
+  [[ -z "${PONYTAIL_DEFAULT_MODE:-}" || "$PONYTAIL_DEFAULT_MODE" == "$PONYTAIL_MODE" ]] \
+    || printf 'AVISO: PONYTAIL_DEFAULT_MODE=%s no ambiente tem prioridade sobre o config.json.\n' "$PONYTAIL_DEFAULT_MODE"
+fi
 cat > "$TMP_WORKDIR/ponytail-rules.md" <<'PONYTAIL_RULES'
 <!-- Fonte oficial DietrichGebert/ponytail/AGENTS.md; commit 9b58c1ffb790c075ca32e70a89cf1d80588f4abf -->
 # Ponytail, lazy senior dev mode
@@ -566,6 +632,11 @@ Never cut: validation at trust boundaries, error handling that prevents data los
 (Yes, this file also applies to agents working on the ponytail repo itself. Especially to them.)
 
 PONYTAIL_RULES
+# Sem hooks, os novos clientes recebem o nivel como regra (tabela Levels do SKILL.md oficial).
+case "$PONYTAIL_MODE" in
+  lite) printf '## Level: lite\n\nBuild what was asked. Name the smaller option in one line and let the user pick.\n' >> "$TMP_WORKDIR/ponytail-rules.md" ;;
+  ultra) printf '## Level: ultra\n\nAlso question the request: before building, push back on any part the need does not justify.\n' >> "$TMP_WORKDIR/ponytail-rules.md" ;;
+esac
 new_client_rules "$TMP_WORKDIR/ponytail-rules.md"
 
 

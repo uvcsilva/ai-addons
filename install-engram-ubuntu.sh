@@ -21,6 +21,7 @@ CODEX_DIR="${CODEX_HOME:-$HOME_DIR/.codex}"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
 CLIENTS="claude,codex"
 PROJECT_DIR=""
+ENGRAM_TOOLS="agent"
 CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
 OC_CONFIG_FILE=""
@@ -45,6 +46,8 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
   --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
   --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
+  --tools PERFIL         Ferramentas do MCP Engram: agent (padrao), admin, all ou
+                         lista (agent,admin ou nomes de ferramentas).
 OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
 RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
@@ -85,10 +88,11 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir)
+    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir|--tools)
       (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
       case "$1" in
         --clients) CLIENTS="$2" ;;
+        --tools) ENGRAM_TOOLS="$2" ;;
         --cline-config) CLINE_CONFIG="$2" ;;
         --vscode-user-dir) VSCODE_USER_DIR="$2" ;;
         --opencode-major) OPENCODE_MAJOR="$2" ;;
@@ -109,6 +113,7 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
+[[ "$ENGRAM_TOOLS" =~ ^[a-z_]+(,[a-z_]+)*$ ]] || { printf 'Use --tools agent, admin, all ou uma lista separada por virgulas\n' >&2; exit 2; }
 for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
@@ -124,6 +129,7 @@ Simulacao de Engram: sem alteracoes e sem acesso a rede.
   • Exigir Ubuntu, usuario sem sudo e: curl, git, jq, python3, sha256sum, flock.
   • Instalar Engram verificado, registrar MCPs e protocolo de memoria.
   • Desativar memorias locais conhecidas; Copilot requer ajuste na conta GitHub.
+  • Ferramentas MCP: --tools=$ENGRAM_TOOLS.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Engram depois da instalacao.
@@ -522,6 +528,9 @@ if same(command, args):
     print("matching")
 elif legacy and same(legacy[0], legacy[1:]):
     print("legacy")
+elif command.startswith("/") and server.get("command") == command and server.get("type", "stdio") == "stdio":
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    print("legacy")
 else:
     raise SystemExit(f"Conflito: Claude MCP {name} ja existe com outra configuracao; nenhuma entrada foi sobrescrita")
 PY
@@ -553,6 +562,10 @@ def same(cmd, argv):
 if same(command, args):
     print("matching")
 elif legacy and same(legacy[0], legacy[1:]):
+    print("legacy")
+elif (command.startswith("/") and transport.get("type") == "stdio" and transport.get("command") == command
+      and server.get("enabled") is True):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
     print("legacy")
 else:
     raise SystemExit(f"Conflito: MCP Codex {name} diferente ou desabilitado; nenhuma entrada sobrescrita")
@@ -739,6 +752,11 @@ if kind=='opencode':
     if major=='1' and 'servers' in current: raise ValueError('Encontrado schema MCP v2; confira --opencode-major')
     if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
         raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
+def owned(node):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    if kind=='memory' or not isinstance(node,dict) or not args[0].startswith('/'): return False
+    command=node.get('command')
+    return command[:1]==[args[0]] if kind=='opencode' and isinstance(command,list) else command==args[0]
 text=original
 for path,expected,replace,legacy in changes:
     root,objects,spans=parse(text)
@@ -753,7 +771,7 @@ for path,expected,replace,legacy in changes:
             text=text[:close]+insertion+text[close:]; break
         if depth==len(path)-1:
             if node[key]!=expected:
-                if not replace and (legacy is None or node[key]!=legacy): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                if not replace and (legacy is None or node[key]!=legacy) and not owned(node[key]): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
                 a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
         node=node[key]
 # Verify all resulting settings before committing the file.
@@ -862,7 +880,7 @@ new_client_rules() {
 }
 
 
-all_mcp check engram "$LOCAL_BIN/engram" mcp --tools=agent
+all_mcp check engram "$LOCAL_BIN/engram" mcp "--tools=$ENGRAM_TOOLS"
 ENGRAM_TAG="$(download_verified_release_asset 'Gentleman-Programming/engram' "@engram-linux-$ASSET_ARCH" "$TMP_WORKDIR/engram.tar.gz")"
 extract_archive_binary "$TMP_WORKDIR/engram.tar.gz" engram "$TMP_WORKDIR/engram"
 install -m 0755 "$TMP_WORKDIR/engram" "$LOCAL_BIN/engram"
@@ -870,8 +888,8 @@ printf 'Engram instalado: %s\n' "$ENGRAM_TAG"
 
 if selected claude; then set_claude_auto_memory_off; "$LOCAL_BIN/engram" setup claude-code; fi
 if selected codex; then set_codex_native_memory_off; "$LOCAL_BIN/engram" setup codex; fi
-all_mcp apply engram "$LOCAL_BIN/engram" mcp --tools=agent
-all_mcp verify engram "$LOCAL_BIN/engram" mcp --tools=agent
+all_mcp apply engram "$LOCAL_BIN/engram" mcp "--tools=$ENGRAM_TOOLS"
+all_mcp verify engram "$LOCAL_BIN/engram" mcp "--tools=$ENGRAM_TOOLS"
 if selected claude || selected codex; then verify_native_memory_off; fi
 verify_plugins engram
 "$LOCAL_BIN/engram" version

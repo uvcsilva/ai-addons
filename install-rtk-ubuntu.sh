@@ -21,6 +21,16 @@ CODEX_DIR="${CODEX_HOME:-$HOME_DIR/.codex}"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
 CLIENTS="claude,codex"
 PROJECT_DIR=""
+RTK_CONFIG="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/rtk/config.toml"
+RTK_INIT_MODE="default"
+RTK_TRUST=""
+RTK_TELEMETRY=""
+RTK_RECALL=""
+RTK_AWARENESS=""
+RTK_EXCLUDE=""
+RTK_TRACKING=""
+RTK_HISTORY_DAYS=""
+RTK_INIT_FLAGS=()
 CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
 OC_CONFIG_FILE=""
@@ -45,6 +55,15 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
   --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
   --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
+  --init-mode default|hook-only  Claude/Codex: hook + RTK.md (padrao) ou somente hook.
+  --trust-filters true|false     Confiar nos filtros personalizados detectados.
+  --telemetry enable|disable     Consentimento de telemetria (rtk telemetry).
+  --recall sqlite|tee|disabled   Recuperacao da saida completa (rtk config recall).
+  --awareness default|high|full  Quanto as instrucoes contam ao agente sobre o RTK.
+  --exclude-commands LISTA       Comandos nunca reescritos (ex.: curl,playwright).
+  --tracking true|false          Registro local de economia de tokens.
+  --history-days N               Dias de historico do registro local.
+                                 Sem estas opcoes, valem os padroes e o config.toml atual.
 OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
 RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
@@ -85,10 +104,18 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir)
+    --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir|--init-mode|--trust-filters|--telemetry|--recall|--awareness|--exclude-commands|--tracking|--history-days)
       (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
       case "$1" in
         --clients) CLIENTS="$2" ;;
+        --init-mode) RTK_INIT_MODE="$2" ;;
+        --trust-filters) RTK_TRUST="$2" ;;
+        --telemetry) RTK_TELEMETRY="$2" ;;
+        --recall) RTK_RECALL="$2" ;;
+        --awareness) RTK_AWARENESS="$2" ;;
+        --exclude-commands) RTK_EXCLUDE="$2" ;;
+        --tracking) RTK_TRACKING="$2" ;;
+        --history-days) RTK_HISTORY_DAYS="$2" ;;
         --cline-config) CLINE_CONFIG="$2" ;;
         --vscode-user-dir) VSCODE_USER_DIR="$2" ;;
         --opencode-major) OPENCODE_MAJOR="$2" ;;
@@ -109,6 +136,13 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
+case "$RTK_INIT_MODE" in default) ;; hook-only) RTK_INIT_FLAGS+=(--hook-only) ;; *) printf 'Use --init-mode default ou hook-only\n' >&2; exit 2 ;; esac
+case "$RTK_TRUST" in '') ;; true) RTK_INIT_FLAGS+=(--trust-filters) ;; false) RTK_INIT_FLAGS+=(--no-trust-filters) ;; *) printf 'Use --trust-filters true ou false\n' >&2; exit 2 ;; esac
+case "$RTK_TELEMETRY" in ''|enable|disable) ;; *) printf 'Use --telemetry enable ou disable\n' >&2; exit 2 ;; esac
+case "$RTK_RECALL" in ''|sqlite|tee|disabled) ;; *) printf 'Use --recall sqlite, tee ou disabled\n' >&2; exit 2 ;; esac
+case "$RTK_AWARENESS" in ''|default|high|full) ;; *) printf 'Use --awareness default, high ou full\n' >&2; exit 2 ;; esac
+case "$RTK_TRACKING" in ''|true|false) ;; *) printf 'Use --tracking true ou false\n' >&2; exit 2 ;; esac
+[[ -z "$RTK_HISTORY_DAYS" || "$RTK_HISTORY_DAYS" =~ ^[1-9][0-9]*$ ]] || { printf 'Use --history-days com um inteiro positivo\n' >&2; exit 2; }
 for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
@@ -124,6 +158,8 @@ Simulacao de RTK: sem alteracoes e sem acesso a rede.
   • Exigir Ubuntu, usuario sem sudo e: curl, python3, sha256sum, flock.
   • Instalar RTK em ~/.local/bin com SHA-256 verificado.
   • Hooks em Claude/Codex; regras nos quatro novos clientes selecionados.
+  • Init: ${RTK_INIT_FLAGS[*]:-padrao}; telemetria: ${RTK_TELEMETRY:-preservar}; recall: ${RTK_RECALL:-preservar}.
+  • config.toml ($RTK_CONFIG): awareness=${RTK_AWARENESS:-preservar}, exclude_commands=${RTK_EXCLUDE:-preservar}, tracking=${RTK_TRACKING:-preservar}, history_days=${RTK_HISTORY_DAYS:-preservar}.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir RTK depois da instalacao.
@@ -240,6 +276,85 @@ fi
 fi
 assert_regular_or_absent "$LOCAL_BIN/rtk"
 backup_path "$LOCAL_BIN/rtk"
+assert_regular_or_absent "$RTK_CONFIG"
+backup_path "$RTK_CONFIG"
+
+# Edita somente as chaves pedidas no config.toml do RTK, preservando o resto do arquivo.
+set_rtk_config() {
+  python3 - "$RTK_CONFIG" "$RTK_AWARENESS" "$RTK_EXCLUDE" "$RTK_TRACKING" "$RTK_HISTORY_DAYS" <<'PY'
+import copy, json, os, pathlib, re, stat, sys, tempfile
+p = pathlib.Path(sys.argv[1]); awareness, exclude, tracking, history = sys.argv[2:]
+changes = []
+if awareness: changes.append(("awareness", "level", awareness))
+if exclude: changes.append(("hooks", "exclude_commands", [c.strip() for c in exclude.split(",") if c.strip()]))
+if tracking: changes.append(("tracking", "enabled", tracking == "true"))
+if history: changes.append(("tracking", "history_days", int(history)))
+if not changes:
+    raise SystemExit(0)
+text = p.read_text(encoding="utf-8") if p.exists() else ""
+mode = stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+if tomllib:
+    before = tomllib.loads(text)
+elif chr(34) * 3 in text or chr(39) * 3 in text:
+    raise SystemExit("TOML multiline requer Python 3.11+; config.toml do RTK nao alterado")
+def literal(value):
+    if isinstance(value, bool): return "true" if value else "false"
+    if isinstance(value, int): return str(value)
+    if isinstance(value, list): return "[" + ", ".join(json.dumps(v, ensure_ascii=False) for v in value) + "]"
+    return json.dumps(value, ensure_ascii=False)
+header = re.compile(r"^\s*\[")
+lines = text.splitlines()
+first_header = next((i for i, l in enumerate(lines) if header.match(l)), len(lines))
+for section, key, value in changes:
+    if any(re.match(r"^\s*" + section + r"\s*[.=]", l) for l in lines[:first_header]):
+        raise SystemExit(f"config.toml define {section} fora de uma tabela; revise manualmente, sem alteracao")
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*\[\s*" + section + r"\s*\]\s*(#.*)?$", l)]
+    if len(starts) > 1:
+        raise SystemExit(f"Tabela [{section}] duplicada; config.toml nao alterado")
+    entry = f"{key} = {literal(value)}"
+    if not starts:
+        if lines and lines[-1].strip(): lines.append("")
+        lines += [f"[{section}]", entry]
+        continue
+    start = starts[0]
+    end = next((j for j in range(start + 1, len(lines)) if header.match(lines[j])), len(lines))
+    hits = [i for i in range(start + 1, end) if re.match(r"^\s*" + key + r"\s*=", lines[i])]
+    if len(hits) > 1:
+        raise SystemExit(f"Chave duplicada [{section}].{key}; config.toml nao alterado")
+    if hits:
+        if lines[hits[0]].count("[") > lines[hits[0]].count("]"):
+            raise SystemExit(f"[{section}].{key} ocupa varias linhas; revise manualmente, sem alteracao")
+        lines[hits[0]] = entry
+    else:
+        last = max([start] + [i for i in range(start + 1, end) if lines[i].strip()])
+        lines.insert(last + 1, entry)
+new_text = "\n".join(lines).rstrip() + "\n"
+if tomllib:
+    expected = copy.deepcopy(before)
+    for section, key, value in changes:
+        table = expected.setdefault(section, {})
+        if not isinstance(table, dict):
+            raise SystemExit(f"{section} nao e tabela TOML; config.toml nao alterado")
+        table[key] = value
+    if tomllib.loads(new_text) != expected:
+        raise SystemExit("Edicao alteraria outra configuracao do RTK; config.toml nao alterado")
+if new_text != text:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".config.toml.", dir=str(p.parent))
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(new_text)
+        os.replace(tmp, p)
+    finally:
+        if os.path.exists(tmp): os.unlink(tmp)
+print("RTK config.toml: " + ", ".join(f"{s}.{k}" for s, k, _ in changes))
+PY
+}
 
 # Resolve an official release asset and its GitHub API SHA-256 digest.
 release_asset_metadata() {
@@ -406,6 +521,11 @@ if kind=='opencode':
     if major=='1' and 'servers' in current: raise ValueError('Encontrado schema MCP v2; confira --opencode-major')
     if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
         raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
+def owned(node):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    if kind=='memory' or not isinstance(node,dict) or not args[0].startswith('/'): return False
+    command=node.get('command')
+    return command[:1]==[args[0]] if kind=='opencode' and isinstance(command,list) else command==args[0]
 text=original
 for path,expected,replace,legacy in changes:
     root,objects,spans=parse(text)
@@ -420,7 +540,7 @@ for path,expected,replace,legacy in changes:
             text=text[:close]+insertion+text[close:]; break
         if depth==len(path)-1:
             if node[key]!=expected:
-                if not replace and (legacy is None or node[key]!=legacy): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                if not replace and (legacy is None or node[key]!=legacy) and not owned(node[key]): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
                 a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
         node=node[key]
 # Verify all resulting settings before committing the file.
@@ -534,8 +654,12 @@ extract_archive_binary "$TMP_WORKDIR/rtk.tar.gz" rtk "$TMP_WORKDIR/rtk"
 install -m 0755 "$TMP_WORKDIR/rtk" "$LOCAL_BIN/rtk"
 printf 'RTK instalado: %s\n' "$RTK_TAG"
 
-if selected claude; then "$LOCAL_BIN/rtk" init --global --auto-patch; fi
-if selected codex; then "$LOCAL_BIN/rtk" init --global --codex; fi
+# Antes do init: awareness muda as instrucoes que o init grava.
+if [[ -n "$RTK_TELEMETRY" ]]; then "$LOCAL_BIN/rtk" telemetry "$RTK_TELEMETRY"; fi
+if [[ -n "$RTK_RECALL" ]]; then "$LOCAL_BIN/rtk" config recall "$RTK_RECALL"; fi
+set_rtk_config
+if selected claude; then "$LOCAL_BIN/rtk" init --global --auto-patch ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
+if selected codex; then "$LOCAL_BIN/rtk" init --global --codex ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
 "$LOCAL_BIN/rtk" --version
 if selected cline || selected opencode || selected copilot || selected vscode; then
   "$LOCAL_BIN/rtk" init --agent cline

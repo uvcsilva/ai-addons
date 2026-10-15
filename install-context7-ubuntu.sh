@@ -21,6 +21,8 @@ CODEX_DIR="${CODEX_HOME:-$HOME_DIR/.codex}"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
 CLIENTS="claude,codex"
 PROJECT_DIR=""
+C7_ARGS=()
+C7_API_KEY_FROM_ENV=0
 CLINE_CONFIG="${CLINE_MCP_SETTINGS_PATH:-$HOME_DIR/.cline/data/settings/cline_mcp_settings.json}"
 OPENCODE_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/opencode"
 OC_CONFIG_FILE=""
@@ -45,6 +47,8 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
   --opencode-major 1|2    Schema instalado; senao detecta opencode --version.
   --project-dir DIR      Projeto fixo do Serena nos novos clientes (opcional).
+  --api-key-from-env     Registra a chave de CONTEXT7_API_KEY (--api-key do MCP oficial)
+                         nos clientes. Sem a opcao, o MCP fica sem chave.
 OpenRouter: selecione cline/opencode e configure o provedor no proprio cliente.
 RTK/Ponytail nos novos clientes: regras, sem hooks nem comandos de plugin.
 
@@ -86,6 +90,7 @@ while (($#)); do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --api-key-from-env) C7_API_KEY_FROM_ENV=1; shift ;;
     --clients|--cline-config|--vscode-user-dir|--opencode-major|--project-dir)
       (($# >= 2)) && [[ -n "$2" && "$2" != --* ]] || { printf 'Falta valor para %s\n' "$1" >&2; exit 2; }
       case "$1" in
@@ -110,6 +115,10 @@ for client in "${CLIENT_LIST[@]}"; do
   esac
 done
 case "$OPENCODE_MAJOR" in ''|1|2) ;; *) printf 'Use --opencode-major 1 ou 2\n' >&2; exit 2 ;; esac
+if [[ "$C7_API_KEY_FROM_ENV" == 1 ]]; then
+  [[ -n "${CONTEXT7_API_KEY:-}" ]] || { printf 'Exporte CONTEXT7_API_KEY antes de usar --api-key-from-env\n' >&2; exit 2; }
+  C7_ARGS=(--api-key "$CONTEXT7_API_KEY")
+fi
 for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
@@ -128,6 +137,7 @@ Simulacao de Context7: sem alteracoes e sem acesso a rede.
   • Claude: garantir env.MCP_TIMEOUT >= 60000 no settings.json (partida a frio do MCP).
   • Registrar instrucoes de uso em todos os clientes selecionados.
   • Preservar configuracoes existentes e recusar conflitos de servidor.
+  • Chave de API: $([[ "$C7_API_KEY_FROM_ENV" == 1 ]] && echo 'de CONTEXT7_API_KEY' || echo 'nenhuma (limite anonimo)').
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Context7 depois da instalacao.
@@ -280,6 +290,9 @@ if same(command, args):
     print("matching")
 elif legacy and same(legacy[0], legacy[1:]):
     print("legacy")
+elif command.startswith("/") and server.get("command") == command and server.get("type", "stdio") == "stdio":
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    print("legacy")
 else:
     raise SystemExit(f"Conflito: Claude MCP {name} ja existe com outra configuracao; nenhuma entrada foi sobrescrita")
 PY
@@ -311,6 +324,10 @@ def same(cmd, argv):
 if same(command, args):
     print("matching")
 elif legacy and same(legacy[0], legacy[1:]):
+    print("legacy")
+elif (command.startswith("/") and transport.get("type") == "stdio" and transport.get("command") == command
+      and server.get("enabled") is True):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
     print("legacy")
 else:
     raise SystemExit(f"Conflito: MCP Codex {name} diferente ou desabilitado; nenhuma entrada sobrescrita")
@@ -475,6 +492,11 @@ if kind=='opencode':
     if major=='1' and 'servers' in current: raise ValueError('Encontrado schema MCP v2; confira --opencode-major')
     if major=='2' and any(isinstance(v,dict) and 'type' in v for v in current.values()):
         raise ValueError('Encontrado schema MCP v1; migre antes de instalar no v2')
+def owned(node):
+    # Mesmo binario instalado por este pacote, com outros argumentos: atualiza as opcoes.
+    if kind=='memory' or not isinstance(node,dict) or not args[0].startswith('/'): return False
+    command=node.get('command')
+    return command[:1]==[args[0]] if kind=='opencode' and isinstance(command,list) else command==args[0]
 text=original
 for path,expected,replace,legacy in changes:
     root,objects,spans=parse(text)
@@ -489,7 +511,7 @@ for path,expected,replace,legacy in changes:
             text=text[:close]+insertion+text[close:]; break
         if depth==len(path)-1:
             if node[key]!=expected:
-                if not replace and (legacy is None or node[key]!=legacy): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
+                if not replace and (legacy is None or node[key]!=legacy) and not owned(node[key]): raise ValueError(f'Conflito MCP {name}: {filename}; nenhuma entrada substituida')
                 a,b=spans[path]; text=text[:a]+json.dumps(expected)+text[b:]
         node=node[key]
 # Verify all resulting settings before committing the file.
@@ -600,7 +622,7 @@ new_client_rules() {
 
 # Entry written by installers before the local npm install; migrated if identical.
 export LEGACY_MCP_ARGV='["npx","-y","--registry=https://registry.npmjs.org","@upstash/context7-mcp"]'
-all_mcp check context7 "$LOCAL_BIN/context7-mcp"
+all_mcp check context7 "$LOCAL_BIN/context7-mcp" ${C7_ARGS[@]+"${C7_ARGS[@]}"}
 npm install --global --prefix "$HOME_DIR/.local" --registry=https://registry.npmjs.org --engine-strict=true @upstash/context7-mcp@latest
 [[ -x "$LOCAL_BIN/context7-mcp" ]] || die 'context7-mcp nao apareceu em ~/.local/bin.'
 cat > "$TMP_WORKDIR/context7-rules.md" <<'RULES'
@@ -611,8 +633,8 @@ if selected claude; then write_managed_rule "$CLAUDE_DIR/CLAUDE.md" "$TMP_WORKDI
 if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/context7-rules.md"; fi
 new_client_rules "$TMP_WORKDIR/context7-rules.md"
 if selected claude; then set_claude_mcp_timeout; fi
-all_mcp apply context7 "$LOCAL_BIN/context7-mcp"
-all_mcp verify context7 "$LOCAL_BIN/context7-mcp"
+all_mcp apply context7 "$LOCAL_BIN/context7-mcp" ${C7_ARGS[@]+"${C7_ARGS[@]}"}
+all_mcp verify context7 "$LOCAL_BIN/context7-mcp" ${C7_ARGS[@]+"${C7_ARGS[@]}"}
 
 printf '\nConcluido: Context7 instalado/configurado para o usuario.\n'
 printf 'Backup: %s\nLog: %s\n' "$BACKUP_DIR" "$LOG_FILE"
