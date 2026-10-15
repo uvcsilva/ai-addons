@@ -216,11 +216,11 @@ class InstallersTest(unittest.TestCase):
 
     LEGACY = '["npx","-y","@upstash/context7-mcp"]'
 
-    def edit_json(self, target, kind="cline", legacy=None, mode="apply", command="/bin/c7"):
+    def edit_json(self, target, kind="cline", legacy=None, mode="apply", command="/bin/c7", major=""):
         script = "install-context7-ubuntu.sh"
         return self.run_shell(
             (f"export LEGACY_MCP_ARGV={shlex.quote(legacy)}\n" if legacy else "")
-            + "OPENCODE_MAJOR=\nassert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
+            + f"OPENCODE_MAJOR={major}\nassert_regular_or_absent() {{ :; }}\nbackup_path() {{ :; }}\n"
             + function(script, "edit_client_json") + "\n"
             + f"edit_client_json {mode} {shlex.quote(str(target))} {kind} context7 {command}\n",
             check=False)
@@ -251,6 +251,23 @@ class InstallersTest(unittest.TestCase):
         self.assertEqual(target.read_text(), before)
         self.assertEqual(self.edit_json(target, legacy=self.LEGACY).returncode, 0)
         self.assertEqual(json.loads(target.read_text())["mcpServers"]["context7"]["command"], "/bin/c7")
+
+    def test_opencode_entries_for_both_schemas(self):
+        # Regression: the OpenCode schema check once shadowed the file reader and broke every apply.
+        for major, path, flag in (("1", ("mcp", "context7"), {"enabled": True}),
+                                  ("2", ("mcp", "servers", "context7"), {"disabled": False})):
+            with self.subTest(major=major):
+                target = self.base / f"opencode{major}.json"
+                target.write_text('{\n  // user\n  "model": "x"\n}\n')
+                self.assertEqual(self.edit_json(target, kind="opencode", major=major).returncode, 0)
+                node = json.loads(re.sub(r"//.*", "", target.read_text()))
+                for key in path:
+                    node = node[key]
+                self.assertEqual(node, {"type": "local", "command": ["/bin/c7"], **flag})
+                first = target.read_text()
+                self.assertEqual(self.edit_json(target, kind="opencode", major=major).returncode, 0)
+                self.assertEqual(target.read_text(), first)
+                self.assertEqual(self.edit_json(target, kind="opencode", major=major, mode="verify").returncode, 0)
 
     def test_empty_json_file_is_treated_as_object(self):
         target = self.base / "settings.json"

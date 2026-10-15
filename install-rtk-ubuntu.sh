@@ -448,11 +448,11 @@ import json, os, pathlib, re, shutil, stat, sys, tempfile
 mode, filename, kind, name, major = sys.argv[1:6]
 args = sys.argv[6:]
 p = pathlib.Path(filename)
-def current():
+def read_config_text():
     text=p.read_text() if p.exists() else ''
     # Arquivo vazio (comum no settings.json do VS Code) equivale a objeto vazio.
     return text if text.strip() else '{}\n'
-original = current()
+original = read_config_text()
 pattern = re.compile(r'\s+|//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null|[{}\[\]:,]')
 def parse(text):
     tokens=[]; pos=0
@@ -556,7 +556,7 @@ if mode=='apply' and text!=original:
     try:
         with os.fdopen(fd,'w') as f: f.write(text)
         os.chmod(tmp,stat.S_IMODE(p.stat().st_mode) if p.exists() else 0o600)
-        if current()!=original: raise ValueError('Arquivo mudou durante a edicao')
+        if read_config_text()!=original: raise ValueError('Arquivo mudou durante a edicao')
         os.replace(tmp,p)
     finally:
         if os.path.exists(tmp): os.unlink(tmp)
