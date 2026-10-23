@@ -1,5 +1,5 @@
 {
-  "clients": ["claude", "codex", "cline", "opencode", "copilot", "vscode"],
+  "clients": ["claude", "codex", "cline", "opencode", "copilot", "vscode", "antigravity"],
   "options": {
     "cline-config": "~/.cline/data/settings/cline_mcp_settings.json",
     "vscode-user-dir": "~/.config/Code/User",

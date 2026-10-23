@@ -27,6 +27,7 @@ OC_CONFIG_FILE=""
 OPENCODE_MAJOR=""
 COPILOT_DIR="${COPILOT_HOME:-$HOME_DIR/.copilot}"
 VSCODE_USER_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/Code/User"
+ANTIGRAVITY_DIR="$HOME_DIR/.gemini"
 PONYTAIL_MODE="ultra"
 PONYTAIL_QUIET=""
 PONYTAIL_HIDE=""
@@ -43,7 +44,7 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
 
   --dry-run  Mostra o plano, sem rede, arquivos, logs ou alteracoes.
   --help     Mostra esta ajuda.
-  --clients LISTA  claude,codex,cline,opencode,copilot,vscode ou all.
+  --clients LISTA  claude,codex,cline,opencode,copilot,vscode,antigravity ou all.
                    Padrao: claude,codex. copilot = CLI; vscode = Copilot VS Code.
   --cline-config ARQUIVO  MCP do Cline CLI ou extensao (caminho absoluto).
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
@@ -111,12 +112,12 @@ while (($#)); do
     *) printf 'Opcao desconhecida: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-[[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode'
+[[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode,antigravity'
 [[ -n "$CLIENTS" && "$CLIENTS" != ,* && "$CLIENTS" != *, && "$CLIENTS" != *,,* ]] || { printf 'Lista de clientes invalida\n' >&2; exit 2; }
 IFS=, read -r -a CLIENT_LIST <<< "$CLIENTS"
 for client in "${CLIENT_LIST[@]}"; do
   case "$client" in
-    claude|codex|cline|opencode|copilot|vscode) ;;
+    claude|codex|cline|opencode|copilot|vscode|antigravity) ;;
     openrouter) printf 'OpenRouter e provedor: use --clients cline,opencode e escolha OpenRouter no cliente.\n' >&2; exit 2 ;;
     *) printf 'Cliente desconhecido: %s\n' "$client" >&2; exit 2 ;;
   esac
@@ -126,7 +127,7 @@ case "$PONYTAIL_MODE" in lite|full|ultra) ;; *) printf 'Use --mode lite, full ou
 for value in "$PONYTAIL_QUIET" "$PONYTAIL_HIDE"; do
   case "$value" in ''|true|false) ;; *) printf 'Use true ou false em --quiet-startup/--hide-status\n' >&2; exit 2 ;; esac
 done
-for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}" "$PONYTAIL_CONFIG"; do
+for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "$ANTIGRAVITY_DIR" "${PROJECT_DIR:-/}" "$PONYTAIL_CONFIG"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
 if [[ "$DRY_RUN" == 1 ]]; then
@@ -137,12 +138,13 @@ Simulacao de Ponytail: sem alteracoes e sem acesso a rede.
   OpenCode: $OPENCODE_DIR (major: ${OPENCODE_MAJOR:-detectar})
   Copilot CLI: $COPILOT_DIR
   VS Code User: $VSCODE_USER_DIR
+  Antigravity: $ANTIGRAVITY_DIR
   Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
   • Exigir Ubuntu, usuario sem sudo e: git, node, python3, flock.
   • Plugin oficial em Claude/Codex selecionados.
   • Nivel padrao: $PONYTAIL_MODE (Claude/Codex: $PONYTAIL_CONFIG).
   • quietStartup: ${PONYTAIL_QUIET:-preservar}; hideStatus: ${PONYTAIL_HIDE:-preservar}.
-  • Regras oficiais incorporadas nos quatro novos clientes selecionados, no nivel $PONYTAIL_MODE.
+  • Regras oficiais incorporadas nos cinco novos clientes selecionados, no nivel $PONYTAIL_MODE.
   • Bloquear execucao simultanea dos seis instaladores.
   • Fazer backup antes de alterar configuracoes e criar log privado.
   • Conferir Ponytail depois da instalacao.
@@ -250,6 +252,10 @@ if selected codex; then
   for path in "$CODEX_CONFIG" "$CODEX_DIR/hooks.json" "$CODEX_DIR/AGENTS.md" "$CODEX_DIR/RTK.md" "$CODEX_DIR/engram-instructions.md" "$CODEX_DIR/engram-compact-prompt.md"; do assert_regular_or_absent "$path"; backup_path "$path"; done
   backup_plugins_dir "$CODEX_DIR/plugins"
   backup_plugins_dir "$HOME_DIR/.agents/plugins"
+fi
+if selected antigravity; then
+  for path in "$ANTIGRAVITY_DIR/GEMINI.md" "$ANTIGRAVITY_DIR/config/mcp_config.json"; do assert_regular_or_absent "$path"; backup_path "$path"; done
+  backup_plugins_dir "$ANTIGRAVITY_DIR/config/plugins"
 fi
 
 fi
@@ -401,12 +407,14 @@ def build(command, argv):
     if kind=='cline': entry.update(disabled=False,autoApprove=[])
     elif kind=='copilot': entry.update(type='local',tools=['*'])
     elif kind=='vscode': entry.update(type='stdio')
+    elif kind=='antigravity': pass
     else: raise ValueError('Cliente desconhecido')
     return entry
 if kind=='memory':
     changes=[((key,),False,True,None) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
 else:
     paths={'cline':('mcpServers',name),'copilot':('mcpServers',name),'vscode':('servers',name),
+           'antigravity':('mcpServers',name),
            'opencode':('mcp','servers',name) if major=='2' else ('mcp',name)}
     if kind not in paths: raise ValueError('Cliente desconhecido')
     legacy=json.loads(os.environ.get('LEGACY_MCP_ARGV') or '[]')
@@ -472,6 +480,7 @@ new_client_mcp() {
     opencode) file="$OC_CONFIG_FILE" ;;
     copilot) file="$COPILOT_DIR/mcp-config.json" ;;
     vscode) file="$VSCODE_USER_DIR/mcp.json" ;;
+    antigravity) file="$ANTIGRAVITY_DIR/config/mcp_config.json" ;;
     *) die "Cliente MCP invalido: $client" ;;
   esac
   if [[ "$command_name" == npx ]]; then command_name="$(command -v npx)"; fi
@@ -481,11 +490,11 @@ new_client_mcp() {
 all_mcp() {
   local mode="$1" name="$2" command_name="$3" client context state; shift 3
   local argv=()
-  for client in claude codex cline opencode copilot vscode; do
+  for client in claude codex cline opencode copilot vscode antigravity; do
     selected "$client" || continue
     argv=("$@")
     if [[ "$name" == serena ]]; then
-      case "$client" in claude) context=claude-code ;; codex) context=codex ;; copilot) context=copilot-cli ;; vscode) context=vscode ;; *) context=ide ;; esac
+      case "$client" in claude) context=claude-code ;; codex) context=codex ;; copilot) context=copilot-cli ;; vscode) context=vscode ;; antigravity) context=antigravity ;; *) context=ide ;; esac
       argv=(start-mcp-server --context "$context" --add-mode no-memories)
       case "$client" in
         claude|codex|copilot) argv+=(--project-from-cwd) ;;
@@ -547,6 +556,7 @@ new_client_rules() {
   if selected opencode; then write_managed_rule "$OPENCODE_DIR/AGENTS.md" "$source"; fi
   if selected copilot; then write_managed_rule "$COPILOT_DIR/copilot-instructions.md" "$source"; fi
   if selected vscode; then write_managed_rule "$VSCODE_USER_DIR/prompts/six-addons-$ADDON.instructions.md" "$source" 1; fi
+  if selected antigravity && [[ "$ADDON" != rtk ]]; then write_managed_rule "$ANTIGRAVITY_DIR/GEMINI.md" "$source"; fi
 }
 
 

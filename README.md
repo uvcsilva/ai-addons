@@ -1,7 +1,7 @@
 # Seis addons no Ubuntu — scripts independentes
 
 **RTK, Serena, Engram, Context7, ccusage e Ponytail**, na mesma máquina e no mesmo
-usuário. Suporte a Claude Code, Codex, Cline, OpenCode, Copilot CLI e Copilot no VS Code.
+usuário. Suporte a Claude Code, Codex, Cline, OpenCode, Copilot CLI, Copilot no VS Code e Antigravity.
 OpenRouter é configurado como provedor dentro do cliente.
 
 Cada instalador `.sh` é completo e pode ser copiado sozinho. Há seis instaladores de
@@ -22,18 +22,18 @@ bash install-all-ubuntu.sh
 
 ## 1. Compatibilidade real
 
-| Addon | Claude Code / Codex | Cline | OpenCode 1 / 2 | Copilot CLI | Copilot VS Code |
-|---|---|---|---|---|---|
-| RTK | Hooks globais | Regras | Regras | Regras | Regras |
-| Serena | MCP, contextos próprios | MCP, contexto `ide` | MCP, contexto `ide` | MCP, `copilot-cli` | MCP, `vscode` |
-| Engram | MCP + setup/plugin oficial | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções |
-| Context7 | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) |
-| ccusage | Relatórios locais | Sem fonte Cline documentada | Relatórios locais | Relatórios locais | Sem fonte da extensão documentada |
-| Ponytail | Plugin oficial | Regras oficiais | Regras oficiais | Regras oficiais | Regras oficiais |
+| Addon | Claude Code / Codex | Cline | OpenCode 1 / 2 | Copilot CLI | Copilot VS Code | Antigravity |
+|---|---|---|---|---|---|---|
+| RTK | Hooks globais | Regras | Regras | Regras | Regras | Plugin/hook oficial + regras |
+| Serena | MCP, contextos próprios | MCP, contexto `ide` | MCP, contexto `ide` | MCP, `copilot-cli` | MCP, `vscode` | MCP, contexto `antigravity` |
+| Engram | MCP + setup/plugin oficial | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções |
+| Context7 | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) |
+| ccusage | Relatórios locais | Sem fonte Cline documentada | Relatórios locais | Relatórios locais | Sem fonte da extensão documentada | Sem fonte Antigravity documentada |
+| Ponytail | Plugin oficial | Regras oficiais | Regras oficiais | Regras oficiais | Regras oficiais | Regras oficiais |
 
-**Regras não equivalem a hooks/plugins.** Nos quatro novos clientes, o agente precisa
-seguir as instruções do RTK e chamar seus comandos; não há reescrita automática de
-comandos. Ponytail fornece as diretrizes de qualidade no nível escolhido em `--mode`
+**Regras não equivalem a hooks/plugins.** Nos clientes sem hook/plugin nativo do addon, o agente precisa
+seguir as instruções do RTK e chamar seus comandos (exceto no Antigravity, onde `rtk init --global --agent antigravity` instala o plugin/hook nativo em `~/.gemini/config/plugins/rtk/`); não há reescrita automática de
+comandos nos demais quatro clientes novos. Ponytail fornece as diretrizes de qualidade no nível escolhido em `--mode`
 (padrão `ultra`), fixo nas regras: sem troca de nível por `/ponytail` ou injeção
 automática em subagentes. Engram fornece as
 ferramentas de memória e um protocolo resumido; salvar/recuperar depende do agente,
@@ -45,7 +45,7 @@ alguns deles; **este pacote não as instala**. O setup OpenCode completo do Engr
 também pode instalar `opencode-subagent-statusline`; por isso usamos MCP + instruções,
 preservando o escopo de exatamente seis addons.
 
-Serena recebe **`--add-mode no-memories` em todos os seis clientes**. Engram é a
+Serena recebe **`--add-mode no-memories` em todos os sete clientes**. Engram é a
 memória persistente escolhida; veja as etapas necessárias para exclusividade na seção 6.
 
 ## 2. Preparação
@@ -154,7 +154,7 @@ Os seis instaladores de addons aceitam as opções abaixo. Elas não se aplicam 
 ```text
 --help
 --dry-run
---clients claude,codex,cline,opencode,copilot,vscode
+--clients claude,codex,cline,opencode,copilot,vscode,antigravity
 --clients all
 --cline-config /caminho/absoluto/cline_mcp_settings.json
 --vscode-user-dir /caminho/absoluto/Code/User
@@ -163,7 +163,7 @@ Os seis instaladores de addons aceitam as opções abaixo. Elas não se aplicam 
 ```
 
 O padrão permanece **`claude,codex`**. `copilot` identifica a CLI; `vscode`, o Copilot
-no VS Code. Escolha apenas os clientes desejados. `--dry-run` não acessa a rede,
+no VS Code; `antigravity`, o Google Antigravity (`~/.gemini`). Escolha apenas os clientes desejados. `--dry-run` não acessa a rede,
 não cria logs/arquivos e não instala nada. Ele mostra o plano, não confirma que as
 dependências ou configurações da máquina são válidas.
 
@@ -175,6 +175,7 @@ dependências ou configurações da máquina são válidas.
 | OpenCode | `${XDG_CONFIG_HOME:-~/.config}/opencode/opencode.json` ou `.jsonc`, se já existir. |
 | Copilot CLI | `${COPILOT_HOME:-~/.copilot}/mcp-config.json`, chave `mcpServers`. |
 | Copilot VS Code | `${XDG_CONFIG_HOME:-~/.config}/Code/User/mcp.json`, chave `servers`. |
+| Antigravity | `~/.gemini/config/mcp_config.json` (chave `mcpServers`), regras globais em `~/.gemini/GEMINI.md` e plugin RTK em `~/.gemini/config/plugins/rtk/`. |
 
 ### Cline na extensão
 
@@ -246,13 +247,13 @@ adicional do Codex e não integra o conjunto de seis addons deste repositório.
 
 ### Projeto do Serena
 
-Claude, Codex, Copilot CLI e OpenCode usam `--project-from-cwd`. Inicie esses clientes
+Claude, Codex, Copilot CLI, OpenCode e Antigravity usam `--project-from-cwd`. Inicie esses clientes
 na pasta do projeto. Ao criar `.serena/project.yml`, o Serena liga só a linguagem principal; em
 projetos com mais de uma (ex.: Go e TypeScript), inclua as demais em `language_servers` e reabra o
 cliente, porque o arquivo só é lido quando o MCP inicia. Para Cline e VS Code, o padrão deixa a ativação para a sessão:
 peça ao Serena para ativar o caminho absoluto do projeto atual.
 
-`--project-dir` fixa um projeto para **Cline/OpenCode/VS Code**, na configuração global.
+`--project-dir` fixa um projeto para **Cline/OpenCode/VS Code/Antigravity**, na configuração global.
 Use apenas quando isso for intencional; não alterna automaticamente ao mudar de
 workspace. Alterar o projeto em uma reexecução atualiza a entrada que este pacote
 registrou (seção 4.3). Essa opção não muda o diretório de instalação, nem

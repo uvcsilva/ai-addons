@@ -38,6 +38,7 @@ OC_CONFIG_FILE=""
 OPENCODE_MAJOR=""
 COPILOT_DIR="${COPILOT_HOME:-$HOME_DIR/.copilot}"
 VSCODE_USER_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/Code/User"
+ANTIGRAVITY_DIR="$HOME_DIR/.gemini"
 selected() { [[ ",$CLIENTS," == *",$1,"* ]]; }
 
 
@@ -50,7 +51,7 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
 
   --dry-run  Mostra o plano, sem rede, arquivos, logs ou alteracoes.
   --help     Mostra esta ajuda.
-  --clients LISTA  claude,codex,cline,opencode,copilot,vscode ou all.
+  --clients LISTA  claude,codex,cline,opencode,copilot,vscode,antigravity ou all.
                    Padrao: claude,codex. copilot = CLI; vscode = Copilot VS Code.
   --cline-config ARQUIVO  MCP do Cline CLI ou extensao (caminho absoluto).
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
@@ -127,12 +128,12 @@ while (($#)); do
     *) printf 'Opcao desconhecida: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-[[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode'
+[[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode,antigravity'
 [[ -n "$CLIENTS" && "$CLIENTS" != ,* && "$CLIENTS" != *, && "$CLIENTS" != *,,* ]] || { printf 'Lista de clientes invalida\n' >&2; exit 2; }
 IFS=, read -r -a CLIENT_LIST <<< "$CLIENTS"
 for client in "${CLIENT_LIST[@]}"; do
   case "$client" in
-    claude|codex|cline|opencode|copilot|vscode) ;;
+    claude|codex|cline|opencode|copilot|vscode|antigravity) ;;
     openrouter) printf 'OpenRouter e provedor: use --clients cline,opencode e escolha OpenRouter no cliente.\n' >&2; exit 2 ;;
     *) printf 'Cliente desconhecido: %s\n' "$client" >&2; exit 2 ;;
   esac
@@ -148,7 +149,7 @@ case "$RTK_RECALL" in ''|sqlite|tee|disabled) ;; *) printf 'Use --recall sqlite,
 case "$RTK_AWARENESS" in ''|default|high|full) ;; *) printf 'Use --awareness default, high ou full\n' >&2; exit 2 ;; esac
 case "$RTK_TRACKING" in ''|true|false) ;; *) printf 'Use --tracking true ou false\n' >&2; exit 2 ;; esac
 [[ -z "$RTK_HISTORY_DAYS" || "$RTK_HISTORY_DAYS" =~ ^[1-9][0-9]*$ ]] || { printf 'Use --history-days com um inteiro positivo\n' >&2; exit 2; }
-for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
+for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "$ANTIGRAVITY_DIR" "${PROJECT_DIR:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
 if [[ "$DRY_RUN" == 1 ]]; then
@@ -159,10 +160,11 @@ Simulacao de RTK: sem alteracoes e sem acesso a rede.
   OpenCode: $OPENCODE_DIR (major: ${OPENCODE_MAJOR:-detectar})
   Copilot CLI: $COPILOT_DIR
   VS Code User: $VSCODE_USER_DIR
+  Antigravity: $ANTIGRAVITY_DIR
   Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
   • Exigir Ubuntu, usuario sem sudo e: curl, python3, sha256sum, flock.
   • Instalar RTK em ~/.local/bin com SHA-256 verificado.
-  • Hooks em Claude/Codex; regras nos quatro novos clientes selecionados.
+  • Hooks em Claude/Codex/Antigravity; regras nos quatro novos clientes selecionados.
   • Init Claude: ${RTK_CLAUDE_DESC:-padrao}; Codex: ${RTK_INIT_FLAGS[*]:-padrao}; telemetria: ${RTK_TELEMETRY:-preservar}; recall: ${RTK_RECALL:-preservar}.
   • config.toml ($RTK_CONFIG): awareness=${RTK_AWARENESS:-preservar}, exclude_commands=${RTK_EXCLUDE:-preservar}, tracking=${RTK_TRACKING:-preservar}, history_days=${RTK_HISTORY_DAYS:-preservar}.
   • Bloquear execucao simultanea dos seis instaladores.
@@ -277,6 +279,10 @@ if selected codex; then
   backup_plugins_dir "$CODEX_DIR/plugins"
   backup_plugins_dir "$HOME_DIR/.agents/plugins"
 fi
+if selected antigravity; then
+  for path in "$ANTIGRAVITY_DIR/GEMINI.md" "$ANTIGRAVITY_DIR/config/mcp_config.json"; do assert_regular_or_absent "$path"; backup_path "$path"; done
+  backup_plugins_dir "$ANTIGRAVITY_DIR/config/plugins"
+fi
 
 fi
 assert_regular_or_absent "$LOCAL_BIN/rtk"
@@ -288,6 +294,7 @@ backup_path "$RTK_CONFIG"
 run_rtk_init() {
   if selected claude; then "$LOCAL_BIN/rtk" init --global --auto-patch ${RTK_CLAUDE_FLAGS[@]+"${RTK_CLAUDE_FLAGS[@]}"} ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
   if selected codex; then "$LOCAL_BIN/rtk" init --global --codex ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
+  if selected antigravity; then "$LOCAL_BIN/rtk" init --global --agent antigravity ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"}; fi
 }
 
 # Edita somente as chaves pedidas no config.toml do RTK, preservando o resto do arquivo.
@@ -533,12 +540,14 @@ def build(command, argv):
     if kind=='cline': entry.update(disabled=False,autoApprove=[])
     elif kind=='copilot': entry.update(type='local',tools=['*'])
     elif kind=='vscode': entry.update(type='stdio')
+    elif kind=='antigravity': pass
     else: raise ValueError('Cliente desconhecido')
     return entry
 if kind=='memory':
     changes=[((key,),False,True,None) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
 else:
     paths={'cline':('mcpServers',name),'copilot':('mcpServers',name),'vscode':('servers',name),
+           'antigravity':('mcpServers',name),
            'opencode':('mcp','servers',name) if major=='2' else ('mcp',name)}
     if kind not in paths: raise ValueError('Cliente desconhecido')
     legacy=json.loads(os.environ.get('LEGACY_MCP_ARGV') or '[]')
@@ -604,6 +613,7 @@ new_client_mcp() {
     opencode) file="$OC_CONFIG_FILE" ;;
     copilot) file="$COPILOT_DIR/mcp-config.json" ;;
     vscode) file="$VSCODE_USER_DIR/mcp.json" ;;
+    antigravity) file="$ANTIGRAVITY_DIR/config/mcp_config.json" ;;
     *) die "Cliente MCP invalido: $client" ;;
   esac
   if [[ "$command_name" == npx ]]; then command_name="$(command -v npx)"; fi
@@ -613,11 +623,11 @@ new_client_mcp() {
 all_mcp() {
   local mode="$1" name="$2" command_name="$3" client context state; shift 3
   local argv=()
-  for client in claude codex cline opencode copilot vscode; do
+  for client in claude codex cline opencode copilot vscode antigravity; do
     selected "$client" || continue
     argv=("$@")
     if [[ "$name" == serena ]]; then
-      case "$client" in claude) context=claude-code ;; codex) context=codex ;; copilot) context=copilot-cli ;; vscode) context=vscode ;; *) context=ide ;; esac
+      case "$client" in claude) context=claude-code ;; codex) context=codex ;; copilot) context=copilot-cli ;; vscode) context=vscode ;; antigravity) context=antigravity ;; *) context=ide ;; esac
       argv=(start-mcp-server --context "$context" --add-mode no-memories)
       case "$client" in
         claude|codex|copilot) argv+=(--project-from-cwd) ;;
@@ -679,6 +689,7 @@ new_client_rules() {
   if selected opencode; then write_managed_rule "$OPENCODE_DIR/AGENTS.md" "$source"; fi
   if selected copilot; then write_managed_rule "$COPILOT_DIR/copilot-instructions.md" "$source"; fi
   if selected vscode; then write_managed_rule "$VSCODE_USER_DIR/prompts/six-addons-$ADDON.instructions.md" "$source" 1; fi
+  if selected antigravity && [[ "$ADDON" != rtk ]]; then write_managed_rule "$ANTIGRAVITY_DIR/GEMINI.md" "$source"; fi
 }
 
 
@@ -698,13 +709,14 @@ if selected cline || selected opencode || selected copilot || selected vscode; t
   [[ -s "$TMP_WORKDIR/.clinerules" ]] || die 'RTK nao gerou instrucoes esperadas.'
   new_client_rules "$TMP_WORKDIR/.clinerules"
 fi
-python3 - "$CLIENTS" "$CLAUDE_SETTINGS" "$CODEX_DIR/hooks.json" <<'PY'
+python3 - "$CLIENTS" "$CLAUDE_SETTINGS" "$CODEX_DIR/hooks.json" "$ANTIGRAVITY_DIR/config/plugins/rtk/hooks.json" <<'PY'
 import json,pathlib,sys
 clients=sys.argv[1].split(',')
-for client,path in zip(('claude','codex'),sys.argv[2:]):
+for client,path in zip(('claude','codex','antigravity'),sys.argv[2:]):
     if client not in clients:continue
     data=json.loads(pathlib.Path(path).read_text())
-    commands=[h.get('command','') for g in data.get('hooks',{}).get('PreToolUse',[]) for h in g.get('hooks',[])]
+    root=data.get('rtk-rewrite',{}) if client=='antigravity' else data.get('hooks',{})
+    commands=[h.get('command','') for g in root.get('PreToolUse',[]) for h in g.get('hooks',[])]
     if not any('rtk' in c and 'hook' in c for c in commands):raise ValueError('Hook RTK ausente: '+client)
 print('RTK: hooks dos clientes nativos selecionados conferidos')
 PY

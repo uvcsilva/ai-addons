@@ -30,6 +30,7 @@ OC_CONFIG_FILE=""
 OPENCODE_MAJOR=""
 COPILOT_DIR="${COPILOT_HOME:-$HOME_DIR/.copilot}"
 VSCODE_USER_DIR="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/Code/User"
+ANTIGRAVITY_DIR="$HOME_DIR/.gemini"
 selected() { [[ ",$CLIENTS," == *",$1,"* ]]; }
 
 
@@ -42,7 +43,7 @@ Integra somente os clientes selecionados. Consulte a matriz de compatibilidade n
 
   --dry-run  Mostra o plano, sem rede, arquivos, logs ou alteracoes.
   --help     Mostra esta ajuda.
-  --clients LISTA  claude,codex,cline,opencode,copilot,vscode ou all.
+  --clients LISTA  claude,codex,cline,opencode,copilot,vscode,antigravity ou all.
                    Padrao: claude,codex. copilot = CLI; vscode = Copilot VS Code.
   --cline-config ARQUIVO  MCP do Cline CLI ou extensao (caminho absoluto).
   --vscode-user-dir DIR   Pasta User do perfil VS Code no Ubuntu.
@@ -105,12 +106,12 @@ while (($#)); do
     *) printf 'Opcao desconhecida: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-[[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode'
+[[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode,antigravity'
 [[ -n "$CLIENTS" && "$CLIENTS" != ,* && "$CLIENTS" != *, && "$CLIENTS" != *,,* ]] || { printf 'Lista de clientes invalida\n' >&2; exit 2; }
 IFS=, read -r -a CLIENT_LIST <<< "$CLIENTS"
 for client in "${CLIENT_LIST[@]}"; do
   case "$client" in
-    claude|codex|cline|opencode|copilot|vscode) ;;
+    claude|codex|cline|opencode|copilot|vscode|antigravity) ;;
     openrouter) printf 'OpenRouter e provedor: use --clients cline,opencode e escolha OpenRouter no cliente.\n' >&2; exit 2 ;;
     *) printf 'Cliente desconhecido: %s\n' "$client" >&2; exit 2 ;;
   esac
@@ -121,7 +122,7 @@ if [[ -n "$CCUSAGE_SETTINGS" ]]; then
   python3 -c 'import json,sys; v=json.loads(sys.argv[1]); sys.exit(0 if isinstance(v,dict) and v else 1)' "$CCUSAGE_SETTINGS" 2>/dev/null \
     || { printf 'Use --settings com um objeto JSON nao vazio (formato do ccusage.json)\n' >&2; exit 2; }
 fi
-for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "${PROJECT_DIR:-/}"; do
+for path in "$CLINE_CONFIG" "$VSCODE_USER_DIR" "$OPENCODE_DIR" "$COPILOT_DIR" "$ANTIGRAVITY_DIR" "${PROJECT_DIR:-/}"; do
   [[ "$path" == /* && "$path" != *$'\n'* ]] || { printf 'Caminho precisa ser absoluto, sem quebra de linha: %s\n' "$path" >&2; exit 2; }
 done
 if [[ "$DRY_RUN" == 1 ]]; then
@@ -132,6 +133,7 @@ Simulacao de ccusage: sem alteracoes e sem acesso a rede.
   OpenCode: $OPENCODE_DIR (major: ${OPENCODE_MAJOR:-detectar})
   Copilot CLI: $COPILOT_DIR
   VS Code User: $VSCODE_USER_DIR
+  Antigravity: $ANTIGRAVITY_DIR
   Serena projeto novos clientes: ${PROJECT_DIR:-ativacao durante a sessao}
   • Exigir Ubuntu, usuario sem sudo e: node, npm, flock, python3.
   • Instalar ccusage no prefixo ~/.local e conferir versao/ajuda.

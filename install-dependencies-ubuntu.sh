@@ -44,11 +44,11 @@ Prepara os pre-requisitos para os seis addons no Ubuntu:
   curl, git, jq, Python 3, sha256sum, flock, Node.js LTS, npm, npx e os CLIs
   dos clientes selecionados (Codex CLI sempre).
 
-  --clients LISTA  claude,codex,cline,opencode,copilot,vscode ou all.
+  --clients LISTA  claude,codex,cline,opencode,copilot,vscode,antigravity ou all.
                    Padrao: codex. Instala via npm, somente se ausente:
                    claude=@anthropic-ai/claude-code, codex=@openai/codex,
                    cline=cline, opencode=opencode-ai@1, copilot=@github/copilot.
-                   vscode e um editor: instale-o separadamente.
+                   vscode e antigravity sao instalados separadamente.
                    Use a mesma lista depois nos seis instaladores.
   --with-opencode  Equivale a incluir opencode em --clients.
                    Preserva OpenCode 1 ou 2 existente e valida sua versao.
@@ -79,12 +79,12 @@ done
 normalize_clients() {
   local client
   local -a client_list
-  [[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode'
+  [[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode,antigravity'
   [[ "$CLIENTS" != ,* && "$CLIENTS" != *, && "$CLIENTS" != *,,* ]] || die 'Lista de clientes invalida.'
   IFS=, read -r -a client_list <<< "$CLIENTS"
   for client in "${client_list[@]}"; do
     case "$client" in
-      claude|codex|cline|opencode|copilot|vscode) ;;
+      claude|codex|cline|opencode|copilot|vscode|antigravity) ;;
       openrouter) die 'OpenRouter e provedor: use --clients cline,opencode e escolha OpenRouter no cliente.' ;;
       *) die "Cliente desconhecido: $client" ;;
     esac
@@ -270,10 +270,17 @@ if selected vscode; then
     printf 'VS Code nao foi encontrado: instale-o e a extensao GitHub Copilot separadamente.\n'
   fi
 fi
+if selected antigravity; then
+  if command -v agy >/dev/null 2>&1; then
+    printf 'Antigravity CLI detectado: %s\n' "$(command -v agy)"
+  else
+    printf 'Antigravity CLI (agy) nao foi encontrado: instale o Antigravity separadamente se for usa-lo localmente.\n'
+  fi
+fi
 printf 'O PATH foi salvo em %s; abra uma nova sessao para aplica-lo.\n' "$PROFILE"
 printf 'Para aplicar agora neste terminal: export PATH="$HOME/.local/bin:$PATH"\n'
 printf '\nOs seis addons podem ser instalados somente no Codex com --clients codex.\n'
-printf -- '--clients all seleciona seis clientes; nao significa somente os seis addons.\n'
+printf -- '--clients all seleciona sete clientes; nao significa somente os seis addons.\n'
 if ! command -v opencode >/dev/null 2>&1; then
   printf 'OpenCode ausente: reexecute este bootstrap com --clients all ou --with-opencode.\n'
 fi

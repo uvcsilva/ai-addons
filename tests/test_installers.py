@@ -275,6 +275,12 @@ class InstallersTest(unittest.TestCase):
         self.assertEqual(self.edit_json(target).returncode, 0)
         self.assertEqual(json.loads(target.read_text())["mcpServers"]["context7"]["command"], "/bin/c7")
         self.assertEqual(self.edit_json(target, mode="verify").returncode, 0)
+        ag_target = self.base / "mcp_config.json"
+        ag_target.write_text("")
+        self.assertEqual(self.edit_json(ag_target, kind="antigravity").returncode, 0)
+        self.assertEqual(json.loads(ag_target.read_text())["mcpServers"]["context7"],
+                         {"command": "/bin/c7", "args": []})
+        self.assertEqual(self.edit_json(ag_target, kind="antigravity", mode="verify").returncode, 0)
 
     def test_github_token_stays_out_of_argv(self):
         args, header = self.base / "curl-args", self.base / "curl-header"
@@ -308,7 +314,7 @@ class InstallersTest(unittest.TestCase):
         self.assertNotEqual(self.edit_json(target, command="c7").returncode, 0)
 
     def test_serena_extra_options_reach_every_client(self):
-        code = ("CLIENTS=claude,cline\nPROJECT_DIR=\nSERENA_EXTRA=(--log-level INFO --add-mode planning)\n"
+        code = ("CLIENTS=claude,cline,antigravity\nPROJECT_DIR=\nSERENA_EXTRA=(--log-level INFO --add-mode planning)\n"
                 "selected() { [[ \",$CLIENTS,\" == *\",$1,\"* ]]; }\n"
                 "ensure_claude_mcp() { echo \"claude $*\"; }\nnew_client_mcp() { echo \"$2 ${*:4}\"; }\n"
                 + function("install-serena-ubuntu.sh", "all_mcp") + "\nall_mcp apply serena /bin/serena\n")
@@ -316,7 +322,9 @@ class InstallersTest(unittest.TestCase):
         self.assertEqual(lines, [
             "claude serena /bin/serena start-mcp-server --context claude-code --project-from-cwd "
             "--add-mode no-memories --log-level INFO --add-mode planning",
-            "cline /bin/serena start-mcp-server --context ide --add-mode no-memories --log-level INFO --add-mode planning"])
+            "cline /bin/serena start-mcp-server --context ide --add-mode no-memories --log-level INFO --add-mode planning",
+            "antigravity /bin/serena start-mcp-server --context antigravity --project-from-cwd "
+            "--add-mode no-memories --log-level INFO --add-mode planning"])
 
     @needs_tomllib
     def test_rtk_config_edit_keeps_other_settings(self):
@@ -355,17 +363,19 @@ class InstallersTest(unittest.TestCase):
 
     def test_rtk_hook_only_never_reaches_codex(self):
         log = self.base / "rtk.log"
-        # Fake rtk refuses the same flags as rtk init --codex (src/hooks/init/mod.rs).
+        # Fake rtk refuses the same flags as rtk init --codex / --agent antigravity (src/hooks/init/mod.rs).
         self.executable("rtk", f"echo \"$*\" >> {shlex.quote(str(log))}\n"
-                        'if [[ " $* " == *" --codex "* && " $* " =~ " --(hook-only|auto-patch|no-patch|claude-md) " ]]; then exit 1; fi\n')
-        code = (f"LOCAL_BIN={shlex.quote(str(self.bin))}\nCLIENTS=claude,codex\n"
+                        'if [[ (" $* " == *" --codex "* || " $* " == *" --agent antigravity "*) '
+                        '&& " $* " =~ " --(hook-only|auto-patch|no-patch|claude-md) " ]]; then exit 1; fi\n')
+        code = (f"LOCAL_BIN={shlex.quote(str(self.bin))}\nCLIENTS=claude,codex,antigravity\n"
                 "RTK_CLAUDE_FLAGS=(--hook-only)\nRTK_INIT_FLAGS=(--no-trust-filters)\n"
                 "selected() { [[ \",$CLIENTS,\" == *\",$1,\"* ]]; }\n"
                 + function("install-rtk-ubuntu.sh", "run_rtk_init") + "\nrun_rtk_init\n")
         self.run_shell(code)
         self.assertEqual(log.read_text().splitlines(), [
             "init --global --auto-patch --hook-only --no-trust-filters",
-            "init --global --codex --no-trust-filters"])
+            "init --global --codex --no-trust-filters",
+            "init --global --agent antigravity --no-trust-filters"])
 
     def test_ccusage_settings_are_merged(self):
         config = self.base / "claude/ccusage.json"
@@ -465,7 +475,7 @@ class InstallersTest(unittest.TestCase):
 
     def test_bootstrap_client_selection(self):
         for clients, opencode, expected in [
-                ("all", "false", "claude,codex,cline,opencode,copilot,vscode"),
+                ("all", "false", "claude,codex,cline,opencode,copilot,vscode,antigravity"),
                 ("claude", "false", "codex,claude"),
                 ("codex", "true", "codex,opencode"),
                 ("opencode,codex", "true", "opencode,codex")]:
