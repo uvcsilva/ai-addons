@@ -587,13 +587,82 @@ ensure_claude_mcp() {
   fi
 }
 
+update_codex_mcp() {
+  local name="$1" command_name="$2"; shift 2
+  assert_regular_or_absent "$CODEX_CONFIG"
+  backup_path "$CODEX_CONFIG"
+  python3 - "$CODEX_CONFIG" "$name" "$command_name" "$@" <<'PY'
+import copy, json, os, pathlib, re, stat, sys, tempfile
+try:
+    import tomllib
+except ImportError:
+    raise SystemExit("Atualizar MCP existente requer Python 3.11+; config.toml nao alterado")
+p = pathlib.Path(sys.argv[1]); name, command = sys.argv[2:4]; args = sys.argv[4:]
+old = p.read_text(encoding="utf-8")
+before = tomllib.loads(old)
+server = before.get("mcp_servers", {}).get(name, {})
+legacy = json.loads(os.environ.get("LEGACY_MCP_ARGV") or "[]")
+owned = (command.startswith("/") and server.get("command") == command
+         or legacy and [server.get("command")] + server.get("args", []) == legacy)
+if not owned or server.get("enabled", True) is not True:
+    raise SystemExit("Entrada MCP mudou ou conflita; config.toml nao alterado")
+# shortcut: TOML incomum exige revisao manual; ampliar o editor quando houver um caso real.
+header = re.search(r"(?m)^[ \t]*\[[ \t]*mcp_servers[ \t]*\.[ \t]*(?:"
+                   + re.escape(name) + "|" + re.escape(json.dumps(name)) + "|'"
+                   + re.escape(name) + r"')[ \t]*\][ \t]*(?:#[^\n]*)?$", old)
+if not header:
+    raise SystemExit("Tabela MCP fora do formato suportado; config.toml nao alterado")
+start = header.end()
+next_header = re.search(r"(?m)^[ \t]*\[", old[start:])
+end = start + next_header.start() if next_header else len(old)
+body = old[start:end]
+string = r'"(?:\\[^\n]|[^"\\\n])*"|\'[^\'\n]*\''
+array = r"\[(?:\s|,|" + string + r")*\]"
+edits = []
+expected = copy.deepcopy(before)
+for key, value, pattern in (("command", command, string), ("args", args, array)):
+    if server.get(key, [] if key == "args" else None) == value:
+        continue
+    expected["mcp_servers"][name][key] = value
+    match = re.search(r"(?m)^[ \t]*(?:" + key + "|'" + key + "'|\"" + key
+                      + r'\")[ \t]*=[ \t]*(?P<value>' + pattern + ")", body)
+    if match:
+        edits.append((start + match.start("value"), start + match.end("value"),
+                      json.dumps(value, ensure_ascii=False)))
+    elif key not in server:
+        prefix = "" if old[:end].endswith("\n") else "\n"
+        edits.append((end, end, prefix + key + " = " + json.dumps(value, ensure_ascii=False) + "\n"))
+    else:
+        raise SystemExit(f"Campo MCP {key} fora do formato suportado; config.toml nao alterado")
+new = old
+for a, b, value in sorted(edits, reverse=True):
+    new = new[:a] + value + new[b:]
+if tomllib.loads(new) != expected:
+    raise SystemExit("Edicao alteraria outra configuracao MCP; config.toml nao alterado")
+fd, tmp = tempfile.mkstemp(prefix=".config.toml.", dir=str(p.parent))
+try:
+    os.fchmod(fd, stat.S_IMODE(p.stat().st_mode))
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(new)
+        f.flush()
+        os.fsync(f.fileno())
+    if p.read_text(encoding="utf-8") != old:
+        raise SystemExit("config.toml mudou durante a edicao; nenhuma alteracao feita")
+    os.replace(tmp, p)
+finally:
+    if os.path.exists(tmp): os.unlink(tmp)
+PY
+}
+
 ensure_codex_mcp() {
   local name="$1" command_name="$2" state; shift 2
   state="$(codex_mcp_state "$name" "$command_name" "$@")" || die "Nao foi possivel validar a entrada Codex MCP $name."
   if [[ "$state" == absent || "$state" == legacy ]]; then
-    # Only the exact entry an older installer wrote is replaced (LEGACY_MCP_ARGV).
-    if [[ "$state" == legacy ]]; then codex mcp remove "$name"; fi
-    codex mcp add "$name" -- "$command_name" "$@"
+    if [[ "$state" == legacy ]]; then
+      update_codex_mcp "$name" "$command_name" "$@"
+    else
+      codex mcp add "$name" -- "$command_name" "$@"
+    fi
     [[ "$state" == absent ]] && state=registrado || state=migrado
     [[ "$(codex_mcp_state "$name" "$command_name" "$@")" == matching ]] || die "Codex nao registrou $name como esperado."
     printf 'Codex MCP %s: %s\n' "$state" "$name"
@@ -871,6 +940,34 @@ print(f'Instrucoes {addon}: {p}')
 PY
 }
 
+warn_engram_runtime_version() {
+  local installed="$1" health endpoint="${ENGRAM_URL:-http://127.0.0.1:${ENGRAM_PORT:-7437}}"
+  local -a curl_args=(--silent --fail --max-time 2)
+  if [[ -n "${ENGRAM_SOCKET:-}" && -z "${ENGRAM_URL:-}" ]]; then
+    curl_args+=(--unix-socket "$ENGRAM_SOCKET")
+    endpoint="http://localhost"
+  fi
+  health=$(curl "${curl_args[@]}" "${endpoint%/}/health" 2>/dev/null) || return 0
+  python3 - "$installed" "$health" <<'PY'
+import json, re, sys
+try:
+    health = json.loads(sys.argv[2])
+except ValueError:
+    sys.exit(0)
+if not isinstance(health, dict) or health.get("service") != "engram" or health.get("status") != "ok":
+    sys.exit(0)
+running = health.get("version")
+if not isinstance(running, str):
+    sys.exit(0)
+installed = re.fullmatch(r"engram v?([0-9]+)\.([0-9]+)\.([0-9]+)", sys.argv[1].strip())
+active = re.fullmatch(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)", running)
+if installed and active and tuple(map(int, active.groups())) < tuple(map(int, installed.groups())):
+    print(f"[AVISO] Servidor Engram ativo {running}; binario instalado {sys.argv[1].strip()}. "
+          "Encerre as sessoes dos agentes e reinicie o servidor Engram antes de iniciar novas sessoes. "
+          "O instalador nao reiniciou processos.", file=sys.stderr)
+PY
+}
+
 new_client_rules() {
   local source="$1"
   if selected cline; then write_managed_rule "$HOME_DIR/.cline/rules/six-addons-$ADDON.md" "$source"; fi
@@ -892,7 +989,9 @@ all_mcp apply engram "$LOCAL_BIN/engram" mcp "--tools=$ENGRAM_TOOLS"
 all_mcp verify engram "$LOCAL_BIN/engram" mcp "--tools=$ENGRAM_TOOLS"
 if selected claude || selected codex; then verify_native_memory_off; fi
 verify_plugins engram
-"$LOCAL_BIN/engram" version
+ENGRAM_INSTALLED_VERSION="$("$LOCAL_BIN/engram" version)"
+printf '%s\n' "$ENGRAM_INSTALLED_VERSION"
+warn_engram_runtime_version "$ENGRAM_INSTALLED_VERSION"
 # Nao invoque `engram mcp --help` como verificacao: o subcomando pode iniciar
 # o servidor stdio e aguardar entrada, impedindo a gravacao das regras abaixo.
 # A versao, os registros MCP e os plugins ja foram conferidos acima.

@@ -226,7 +226,9 @@ de atualização. Dependências do módulo podem ser baixadas durante o teste.
 
 `--check-go-project` exige `go.mod` na raiz, inicia uma conexão MCP temporária e
 confirma símbolos do primeiro arquivo Go encontrado, com limite de 180 segundos.
-Não altera o projeto ativo do chat. Serena pode criar sua configuração `.serena`
+O diagnóstico usa a interface `tools`, mesmo quando a configuração global usa REPL,
+e aceita as respostas dos SDKs MCP v1 e v2. Não altera o projeto ativo do chat.
+Serena pode criar sua configuração `.serena`
 quando o projeto ainda não está preparado. O teste usa as dependências Go já instaladas;
 sem `--with-go`, não instala Go/gopls. Essas duas opções são exclusivas do instalador
 Serena e também aparecem no `--dry-run`.
@@ -494,6 +496,17 @@ uma conversa nem confirmam uma chamada real ao modelo ou o handshake de todo MCP
 
 Reinicie os clientes e faça a conferência no ambiente Ubuntu:
 
+Abra cada cliente na raiz do projeto em que vai trabalhar. Iniciar em `~/` quando
+há vários repositórios pode deixar a detecção do Engram ambígua, impedir o registro
+da sessão e preencher o mapa do Ponytail com arquivos de outros projetos. Ativar
+um projeto apenas no Serena não corrige o diretório inicial do cliente nem registra
+a identidade do Engram; nesse caso, abra uma nova sessão na pasta correta.
+
+Depois de atualizar o Engram, o instalador consulta `/health`, quando disponível,
+e avisa se o servidor ainda executa uma versão anterior à instalada. Ele não encerra
+processos ativos. Ao receber esse aviso, encerre as sessões e reinicie o serviço e
+os clientes para carregar o binário atualizado.
+
 1. Revise a confiança dos MCPs e, no Codex, dos hooks em `/hooks`; abra uma nova sessão.
 2. Nos clientes selecionados, confira os servidores `engram`, `serena` e `context7`.
    Claude/Codex/OpenCode/Copilot CLI oferecem listagem de MCP; nos editores use o painel
@@ -571,6 +584,11 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   duplicadas, formato inválido, schema conflitante e servidores diferentes com o
   mesmo nome. TOML é editado de modo conservador. Só entradas MCP que já usam o binário
 instalado por este pacote têm os argumentos atualizados; as demais são recusadas.
+  No Codex, atualizar uma entrada própria preserva as demais opções, como `env`,
+  tempos limite e políticas de ferramentas. Essa atualização exige Python 3.11+;
+  em versões anteriores, o arquivo é preservado e o instalador informa o requisito.
+  Formatos TOML que o editor não reconhece, incluindo comentários dentro de `args`,
+  são recusados sem modificar o arquivo.
 - Instruções existentes são preservadas; apenas blocos `six-addons:...` são atualizados.
   Arquivos gerenciados de instruções VS Code preexistentes sem marcador são recusados.
 - Configurações por link simbólico são recusadas. Faça alterações deliberadas no alvo
@@ -642,9 +660,12 @@ com sucesso.
 
 ## 9. Validação e limites conhecidos
 
-Em **15/10/2026**, os oito scripts passaram pela verificação de sintaxe Bash e pelo
-`shellcheck -S warning`, e os **36 testes** de [tests/test_installers.py](tests/test_installers.py)
-passaram em Ubuntu 24.04. O mesmo conjunto roda no CI do GitLab ([.gitlab-ci.yml](.gitlab-ci.yml)).
+Em **23/10/2026**, os oito scripts passaram pela verificação de sintaxe Bash e os
+**50 testes** em `tests/` passaram. A revisão também confirmou leituras reais de
+símbolos Python e Go pelo Serena e migrações MCP com Codex em configurações
+temporárias. ShellCheck não estava instalado nessa máquina; a verificação anterior,
+em 15/10/2026, passou com `shellcheck -S warning` em Ubuntu 24.04. O CI do GitLab
+mantém essas três verificações ([.gitlab-ci.yml](.gitlab-ci.yml)).
 A suíte cobre instalação Go simulada, checksum, preservação de ferramentas existentes,
 limites de compilação do `gopls`, blocos de instruções, timeout MCP do Claude,
 backups de plugins, memória nativa por cliente, edição JSONC/TOML, migração de MCP
@@ -655,6 +676,9 @@ no bootstrap, nível e opções do Ponytail, opções extras do Serena, edição
 orquestrador (ordem e montagem dos argumentos, listas/objetos/booleanos, recusa de
 JSON inválido, conferência prévia, parada na primeira falha e `--dry-run` real de
 `addons.json` e `addons.exemple.json`).
+As regressões adicionais cobrem a preservação de opções/comentários MCP no Codex,
+o diagnóstico Go com interface REPL e SDKs MCP v1/v2, e o aviso de versão antiga
+do servidor Engram.
 
 Para conferir localmente a sintaxe dos oito scripts sem instalar nada:
 
@@ -674,8 +698,8 @@ Python 3.11+ (`tomllib`) são pulados automaticamente:
 python3 -m unittest discover -s tests -v
 ```
 
-Esses testes simulam downloads e ferramentas. Esta revisão não reexecutou instalações
-reais nem comprovou chamadas ao modelo ou o funcionamento de todos os MCPs/clientes.
+Os testes automatizados simulam downloads e ferramentas. Esta revisão não reexecutou
+instalações completas nem comprovou chamadas ao modelo ou o funcionamento de todos os clientes.
 Faça a conferência da seção 7 e, para projetos Go, use `--check-go-project`.
 
 ## 10. Fontes oficiais
