@@ -28,7 +28,7 @@
       "open-web-dashboard": false,
       "log-level": "WARNING",
       "tool-timeout": 240,
-      "modes": ["planning", "editing"],
+      "modes": ["no-onboarding"],
       "ls-dependencies": ["python", "typescript", "go"]
     },
     "context7": {

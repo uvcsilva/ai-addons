@@ -27,7 +27,7 @@
       "open-web-dashboard": null,
       "log-level": null,
       "tool-timeout": null,
-      "modes": ["planning", "editing"],
+      "modes": [],
       "ls-dependencies": []
     },
     "context7": {
@@ -36,7 +36,7 @@
     },
     "rtk": {
       "enabled": true,
-      "init-mode": "hook-only",
+      "init-mode": "default",
       "trust-filters": false,
       "telemetry": "disable",
       "recall": "sqlite",

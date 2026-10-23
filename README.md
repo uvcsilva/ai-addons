@@ -245,7 +245,9 @@ adicional do Codex e não integra o conjunto de seis addons deste repositório.
 ### Projeto do Serena
 
 Claude, Codex, Copilot CLI e OpenCode usam `--project-from-cwd`. Inicie esses clientes
-na pasta do projeto. Para Cline e VS Code, o padrão deixa a ativação para a sessão:
+na pasta do projeto. Ao criar `.serena/project.yml`, o Serena liga só a linguagem principal; em
+projetos com mais de uma (ex.: Go e TypeScript), inclua as demais em `language_servers` e reabra o
+cliente, porque o arquivo só é lido quando o MCP inicia. Para Cline e VS Code, o padrão deixa a ativação para a sessão:
 peça ao Serena para ativar o caminho absoluto do projeto atual.
 
 `--project-dir` fixa um projeto para **Cline/OpenCode/VS Code**, na configuração global.
@@ -394,14 +396,14 @@ opção, vale o padrão do addon e a configuração existente é preservada.
 | Serena | `open-web-dashboard` | **valor** `true`/`false` | Abrir o dashboard no navegador a cada início do MCP. |
 | Serena | `log-level` | `DEBUG` … `CRITICAL` | Nível de log. |
 | Serena | `tool-timeout` | segundos | Tempo limite das ferramentas. |
-| Serena | `modes` | lista (ex.: `planning`, `editing`, `interactive`, `one-shot`, `no-onboarding`) | Modos adicionais (`--add-mode`); `no-memories` é sempre aplicado. |
+| Serena | `modes` | lista (ex.: `planning`, `editing`, `interactive`, `one-shot`, `no-onboarding`) | Modos adicionais (`--add-mode`); `no-memories` é sempre aplicado. `interactive` e `editing` já são modos base do Serena; `planning` manda não escrever código. |
 | Serena | `ls-dependencies` | lista (ex.: `python`, `typescript`, `go`) | Pré-baixa language servers com `serena download-ls-dependencies`. |
 | Context7 | `api-key-from-env` | flag | Grava a chave de `CONTEXT7_API_KEY` como `--api-key` do MCP em cada cliente. |
 | RTK | `init-mode` | `default`, `hook-only` | Claude: hook + `RTK.md`, ou somente o hook. O Codex sempre recebe hook + `AGENTS.md`/`RTK.md`, pois `rtk init --codex` recusa `--hook-only`. |
 | RTK | `trust-filters` | **valor** `true`/`false` | Confiar nos filtros personalizados detectados (`--trust-filters`/`--no-trust-filters`). |
 | RTK | `telemetry` | `enable`, `disable` | Consentimento de telemetria (`rtk telemetry`). |
 | RTK | `recall` | `sqlite`, `tee`, `disabled` | Recuperação da saída completa (`rtk config recall`). |
-| RTK | `awareness` | `default`, `high`, `full` | Quanto as instruções do `init` contam ao agente sobre o RTK. |
+| RTK | `awareness` | `default`, `high`, `full` | Quanto as instruções do `init` contam ao agente sobre o RTK. No Claude só vale com `init-mode` `default`: `hook-only` não grava instruções. |
 | RTK | `exclude-commands` | lista | Comandos nunca reescritos (`hooks.exclude_commands`). |
 | RTK | `tracking`, `history-days` | **valor** `true`/`false`; inteiro | Registro local de economia de tokens e dias de histórico. |
 | ccusage | `settings` | objeto | Conteúdo no formato do `ccusage.json` oficial (`defaults`, `commands` e seções por agente), mesclado em `~/.config/claude/ccusage.json` (ou no primeiro diretório de `CLAUDE_CONFIG_DIR`). |

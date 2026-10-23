@@ -860,7 +860,7 @@ if [[ -n "$SERENA_LS_DEPS" ]]; then
 fi
 cat > "$TMP_WORKDIR/serena-rules.md" <<'RULES'
 ## Serena
-Before coding tasks, read the Serena initial instructions. Prefer its symbol and reference tools to explore and modify code. If the language backend fails, report it; an MCP registration does not prove the analyzer works.
+Before coding tasks, read the Serena initial instructions. Prefer its symbol and reference tools to explore and modify code. If the language backend fails, report it; an MCP registration does not prove the analyzer works. If a file's language is missing from `language_servers` in `.serena/project.yml`, say so and propose adding it; Serena reads that file only when its MCP server starts.
 RULES
 if selected claude; then write_managed_rule "$CLAUDE_DIR/CLAUDE.md" "$TMP_WORKDIR/serena-rules.md"; fi
 if selected codex; then write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/serena-rules.md"; fi
