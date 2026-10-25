@@ -1,0 +1,62 @@
+#!/bin/sh
+# Run shared VM tools from OpenCode Desktop without installing a second stack.
+# VM and user are detected from PWD; the addons stack lives in vm-pessoal.
+set -eu
+
+tool=${1:?Usage: ai-tooling-vm serena|context7|engram|rtk|ccusage [args...]}
+shift
+case "$tool" in
+    serena|context7|engram|rtk|ccusage) ;;
+    *) printf 'Unsupported tool: %s\n' "$tool" >&2; exit 2 ;;
+esac
+
+orb_bin=${ORB_BIN:-/usr/local/bin/orb}
+pessoal_root="$HOME/OrbStack/vm-pessoal"
+trt4_root="$HOME/OrbStack/vm-trt4"
+
+case "$PWD" in
+    "$trt4_root"/*)
+        vm_name=vm-trt4
+        vm_user=vitorcsilva
+        vm_home=/home/vitorcsilva
+        vm_directory=${PWD#"$trt4_root"}
+        in_volume=1
+        ;;
+    "$pessoal_root"/*)
+        vm_name=vm-pessoal
+        vm_user=vitor
+        vm_home=/home/vitor
+        vm_directory=${PWD#"$pessoal_root"}
+        in_volume=1
+        ;;
+    *)
+        # Outside both volumes: MCP servers fall back to the addons home.
+        vm_name=vm-pessoal
+        vm_user=vitor
+        vm_home=/home/vitor
+        vm_directory=$vm_home
+        in_volume=0
+        ;;
+esac
+
+if [ "$tool" = rtk ] && [ "$in_volume" -eq 0 ]; then
+    printf 'RTK requires a project inside %s or %s.\n' "$pessoal_root" "$trt4_root" >&2
+    exit 2
+fi
+
+case "$tool" in
+    serena)
+        exec "$orb_bin" -m "$vm_name" -u "$vm_user" -w "$vm_directory" \
+            "$vm_home/.local/bin/serena" start-mcp-server \
+            --project-from-cwd --context=ide --open-web-dashboard false "$@"
+        ;;
+    context7)
+        # The login shell supplies Node/npx's VM PATH.
+        exec "$orb_bin" -m "$vm_name" -u "$vm_user" -w "$vm_directory" \
+            bash -lc 'bin="$HOME/.local/bin/context7-mcp"; [ -x "$bin" ] || bin="$HOME/.local/bin/ai-context7-mcp"; exec "$bin" "$@"' ai-context7-mcp "$@"
+        ;;
+    engram|rtk|ccusage)
+        exec "$orb_bin" -m "$vm_name" -u "$vm_user" -w "$vm_directory" \
+            "$vm_home/.local/bin/$tool" "$@"
+        ;;
+esac
