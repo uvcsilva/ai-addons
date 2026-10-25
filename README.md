@@ -198,6 +198,62 @@ Um schema MCP da outra versão é recusado. Overrides `OPENCODE_CONFIG`,
 um arquivo que não seria o efetivo. Configurações de projeto ainda podem ter
 precedência; confira-as antes de usar os MCPs. Regras ficam no `AGENTS.md` global.
 
+### OpenCode Desktop com addons na VM OrbStack
+
+O fluxo Ubuntu acima permanece inalterado. Para o OpenCode Desktop no macOS usando os
+binários instalados por este repositório na `vm-pessoal` ou `vm-trt4`, o adaptador
+[`opencode-desktop/ai-tooling-vm`](opencode-desktop/ai-tooling-vm) escolhe a VM e o
+diretório pelo `PWD`. Fora dos volumes compartilhados, os MCPs usam `/home/vitor` na
+`vm-pessoal`; o RTK exige um projeto dentro de um dos volumes.
+
+Instale o adaptador no host, a partir deste repositório montado pelo OrbStack:
+
+```bash
+install -d ~/.config/opencode/bin
+install -m 0755 opencode-desktop/ai-tooling-vm ~/.config/opencode/bin/ai-tooling-vm
+```
+
+Mescle somente estas entradas em `~/.config/opencode/opencode.jsonc`, trocando
+`/Users/SEU_USUARIO` pelo caminho absoluto do seu home. Não substitua o arquivo nem
+remova `model`, `provider`, `plugin`, outros MCPs ou demais configurações:
+
+```jsonc
+"mcp": {
+  "serena": {
+    "type": "local",
+    "command": ["/Users/SEU_USUARIO/.config/opencode/bin/ai-tooling-vm", "serena"],
+    "enabled": true,
+    "timeout": 60000
+  },
+  "context7": {
+    "type": "local",
+    "command": ["/Users/SEU_USUARIO/.config/opencode/bin/ai-tooling-vm", "context7"],
+    "enabled": true,
+    "timeout": 60000
+  },
+  "engram": {
+    "type": "local",
+    "command": ["/Users/SEU_USUARIO/.config/opencode/bin/ai-tooling-vm", "engram", "mcp", "--tools=agent"],
+    "enabled": true,
+    "timeout": 60000
+  }
+}
+```
+
+OpenRouter continua sendo apenas o provedor. Modelos como
+`openrouter/moonshotai/kimi-k3.1-pro` usam a mesma integração, sem configuração
+específica por modelo. O adaptador não adiciona nem remove plugins: RTK e Ponytail
+continuam por regras/skills, e ccusage continua sendo uma CLI. RTK e relatórios ccusage
+podem ser chamados pelo mesmo adaptador:
+
+```bash
+~/.config/opencode/bin/ai-tooling-vm rtk git status
+~/.config/opencode/bin/ai-tooling-vm ccusage opencode daily
+```
+
+Reinicie o OpenCode depois de editar `opencode.jsonc`. A variável `ORB_BIN` só existe
+para testes ou uma instalação não padrão do `orb`; o padrão é `/usr/local/bin/orb`.
+
 ### VS Code, perfis, SSH e WSL
 
 O padrão atende ao VS Code Stable no Ubuntu. Use `--vscode-user-dir` para Insiders
@@ -661,12 +717,11 @@ com sucesso.
 
 ## 9. Validação e limites conhecidos
 
-Em **23/10/2026**, os oito scripts passaram pela verificação de sintaxe Bash e os
-**50 testes** em `tests/` passaram. A revisão também confirmou leituras reais de
-símbolos Python e Go pelo Serena e migrações MCP com Codex em configurações
-temporárias. ShellCheck não estava instalado nessa máquina; a verificação anterior,
-em 15/10/2026, passou com `shellcheck -S warning` em Ubuntu 24.04. O CI do GitLab
-mantém essas três verificações ([.gitlab-ci.yml](.gitlab-ci.yml)).
+Em **24/10/2026**, os oito instaladores passaram pela verificação de sintaxe Bash e,
+com o adaptador OpenCode Desktop, pelo ShellCheck. Os **54 testes** em `tests/` passaram.
+A revisão também confirmou leituras reais de símbolos Python e Go pelo Serena e migrações
+MCP com Codex em configurações temporárias. O CI do GitLab mantém essas verificações
+([.gitlab-ci.yml](.gitlab-ci.yml)).
 A suíte cobre instalação Go simulada, checksum, preservação de ferramentas existentes,
 limites de compilação do `gopls`, blocos de instruções, timeout MCP do Claude,
 backups de plugins, memória nativa por cliente, edição JSONC/TOML, migração de MCP
@@ -676,16 +731,17 @@ no bootstrap, nível e opções do Ponytail, opções extras do Serena, edição
 `config.toml` do RTK, mesclagem do `ccusage.json`, atualização de MCP próprio e o
 orquestrador (ordem e montagem dos argumentos, listas/objetos/booleanos, recusa de
 JSON inválido, conferência prévia, parada na primeira falha e `--dry-run` real de
-`addons.json` e `addons.exemple.json`).
+`addons.json` e `addons.exemple.json`). O adaptador OpenCode Desktop é testado nas
+duas VMs, incluindo fallback, argumentos, ccusage e recusa de comandos inválidos.
 As regressões adicionais cobrem a preservação de opções/comentários MCP no Codex,
 o diagnóstico Go com interface REPL e SDKs MCP v1/v2, e o aviso de versão antiga
 do servidor Engram.
 
-Para conferir localmente a sintaxe dos oito scripts sem instalar nada:
+Para conferir localmente a sintaxe dos oito instaladores e do adaptador sem instalar nada:
 
 ```bash
 (
-for script in install-*-ubuntu.sh; do
+for script in install-*-ubuntu.sh opencode-desktop/ai-tooling-vm; do
   bash -n "$script" || exit 1
 done
 )
