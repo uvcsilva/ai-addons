@@ -7,4 +7,6 @@ test:
   script:
     - for f in install-*-ubuntu.sh opencode-desktop/ai-tooling-vm lib/*.sh; do bash -n "$f"; done
     - shellcheck -x -S warning install-*-ubuntu.sh opencode-desktop/ai-tooling-vm lib/*.sh
-    - python3 -m unittest discover -v tests
+    # Os instaladores recusam root; os testes de fluxo rodam o preambulo real, entao a suite usa um usuario comum.
+    - useradd -m tester && chown -R tester "$CI_PROJECT_DIR"
+    - runuser -u tester -- python3 -m unittest discover -v tests
