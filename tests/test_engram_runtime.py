@@ -24,7 +24,7 @@ class EngramRuntimeTest(unittest.TestCase):
             env.update(overrides)
             result = subprocess.run(
                 ["bash", "-c", "set -euo pipefail\n"
-                 + function("install-engram-ubuntu.sh", "warn_engram_runtime_version")
+                 + function("lib/tools.sh", "warn_engram_runtime_version")
                  + "\nwarn_engram_runtime_version " + shlex.quote(installed)],
                 env=env, text=True, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
