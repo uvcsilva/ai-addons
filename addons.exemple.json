@@ -15,7 +15,6 @@
   "addons": {
     "engram": {
       "enabled": true,
-      "clients": "claude,codex,opencode",
       "tools": "agent,admin"
     },
     "serena": {
