@@ -100,7 +100,10 @@ class OpenCodeInstallerTest(ProviderInstallerTest):
 
         rules = (self.oc / "AGENTS.md").read_text()
         self.assertTrue(rules.startswith("My rules\n"))
-        for addon in ("engram", "serena", "context7", "rtk"):
+        self.assert_graphify_skill(self.oc / "skills/graphify")
+        self.assertEqual((self.oc / "plugins/graphify.js").read_text(), "// graphify OpenCode plugin\n")
+        self.assertFalse((self.home / ".opencode").exists())  # graphify install ran in a scratch HOME
+        for addon in ("engram", "serena", "context7", "rtk", "graphify"):
             self.assertIn(f"<!-- six-addons:{addon}:begin -->", rules)
         self.assertNotIn("six-addons:ponytail", rules)
 

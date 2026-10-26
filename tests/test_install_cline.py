@@ -46,7 +46,7 @@ class ClineInstallerTest(ProviderInstallerTest):
             "start-mcp-server", "--context", "ide", "--add-mode", "no-memories", "--project", "/srv/app",
             "--log-level", "INFO", "--add-mode", "planning"])
         self.assertEqual(servers["context7"]["args"], [])
-        for addon in ("engram", "serena", "context7", "rtk", "ponytail"):
+        for addon in ("engram", "serena", "context7", "rtk", "ponytail", "graphify"):
             text = (self.rules / f"six-addons-{addon}.md").read_text()
             self.assertTrue(text.startswith(f"<!-- six-addons:{addon}:begin -->"), addon)
         self.assertIn("Prefix shell commands with rtk", (self.rules / "six-addons-rtk.md").read_text())

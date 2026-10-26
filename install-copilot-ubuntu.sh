@@ -177,7 +177,8 @@ Simulacao do Copilot: sem alteracoes e sem acesso a rede.
   VS Code User: $VSCODE_USER_DIR
   • Exigir Ubuntu, usuario sem sudo e: curl, sha256sum, node, npm, python3, flock.
   • Conferir os MCPs engram, serena e context7 antes de baixar algo; recusar conflitos.
-  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), context7-mcp e RTK.
+  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), Graphify, context7-mcp e RTK.
+  • Graphify: skill do cliente, regra de uso e graphify-preflight; o grafo de cada repositorio e criado sob demanda.
   • Engram, Serena e Context7: MCP e regras em cada superficie; Engram com --tools=$ENGRAM_TOOLS.
   • Serena no CLI: ${SERENA_CLI_ARGV[*]}.
   • Serena no VS Code: ${SERENA_VSCODE_ARGV[*]}.
@@ -255,7 +256,14 @@ EOF
   fi
   if surface vscode; then vscode_rules ponytail "$TMP_WORKDIR/ponytail-rules.md"; fi
 
-  installer_end "Copilot ($SURFACES) configurado com Engram, Serena, Context7, RTK e Ponytail."
+  addon_rules graphify "$TMP_WORKDIR/graphify-rules.md"
+  if surface cli; then
+    graphify_skill copilot .copilot/skills/graphify "$COPILOT_DIR/skills/graphify"
+    cli_rules graphify "$TMP_WORKDIR/graphify-rules.md"
+  fi
+  if surface vscode; then vscode_rules graphify "$TMP_WORKDIR/graphify-rules.md"; fi
+
+  installer_end "Copilot ($SURFACES) configurado com Engram, Serena, Context7, RTK, Ponytail e Graphify."
   printf '\nACAO MANUAL: desative Copilot Memory nas configuracoes da conta GitHub. Revise overrides do workspace/perfil. Veja README.\n'
 }
 

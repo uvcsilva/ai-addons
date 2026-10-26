@@ -133,7 +133,8 @@ class LibTest(unittest.TestCase):
                     self.assertIn(level, text)
                 else:
                     self.assertNotIn("## Level:", text)
-        for addon, heading in (("engram", "# Engram"), ("serena", "## Serena"), ("context7", "## Context7")):
+        for addon, heading in (("engram", "# Engram"), ("serena", "## Serena"), ("context7", "## Context7"),
+                               ("graphify", "## Graphify")):
             with self.subTest(addon=addon):
                 self.run_lib(f"addon_rules {addon} {shlex.quote(str(out))}", "common.sh", "addons.sh")
                 self.assertTrue(out.read_text().startswith(heading))
