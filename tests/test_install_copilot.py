@@ -105,12 +105,13 @@ class CopilotInstallerTest(ProviderInstallerTest):
         instructions = (self.cli / "copilot-instructions.md").read_text()
         self.assertTrue(instructions.startswith("My rules\n"))
         self.assertIn("# RTK (native)", instructions)
-        for addon in ("engram", "serena", "context7"):
+        self.assert_graphify_skill(self.cli / "skills/graphify")
+        for addon in ("engram", "serena", "context7", "graphify"):
             self.assertIn(f"<!-- six-addons:{addon}:begin -->", instructions)
         for addon in ("rtk", "ponytail"):
             self.assertNotIn(f"six-addons:{addon}", instructions)
         self.assertIn("rtk hook copilot", (self.cli / "hooks/rtk-rewrite.json").read_text())
-        for addon in ("engram", "serena", "context7", "rtk", "ponytail"):
+        for addon in ("engram", "serena", "context7", "rtk", "ponytail", "graphify"):
             prompt = (self.user / f"prompts/six-addons-{addon}.instructions.md").read_text()
             self.assertTrue(prompt.startswith('---\napplyTo: "**"\n---\n'), addon)
         self.assertNotIn("## Level:", (self.user / "prompts/six-addons-ponytail.instructions.md").read_text())

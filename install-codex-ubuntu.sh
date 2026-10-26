@@ -398,7 +398,8 @@ Simulacao do Codex: sem alteracoes e sem acesso a rede.
   Codex: $CODEX_DIR (MCP em $CODEX_CONFIG)
   • Exigir Ubuntu, usuario sem sudo e: codex, git, jq, curl, sha256sum, node, npm, python3, flock.
   • Fazer backup das configuracoes e plugins do Codex e conferir os MCPs antes de baixar algo.
-  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), context7-mcp e RTK.
+  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), Graphify, context7-mcp e RTK.
+  • Graphify: skill do cliente, regra de uso e graphify-preflight; o grafo de cada repositorio e criado sob demanda.
   • RTK global: telemetria=${RTK_TELEMETRY:-preservar}, recall=${RTK_RECALL:-preservar}, config.toml em $RTK_CONFIG.
   • Engram: memorias nativas desligadas no config.toml, engram setup codex, MCP engram mcp --tools=$ENGRAM_TOOLS.
   • Serena: regra em AGENTS.md e MCP ${SERENA_ARGV[*]}.
@@ -450,7 +451,11 @@ EOF
   [[ -z "${PONYTAIL_DEFAULT_MODE:-}" || "$PONYTAIL_DEFAULT_MODE" == "$PONYTAIL_MODE" ]] \
     || printf 'AVISO: PONYTAIL_DEFAULT_MODE=%s no ambiente tem prioridade sobre o config.json.\n' "$PONYTAIL_DEFAULT_MODE"
 
-  installer_end 'Codex configurado com Engram, Serena, Context7, RTK e Ponytail.'
+  graphify_skill codex .codex/skills/graphify "$CODEX_DIR/skills/graphify"
+  addon_rules graphify "$TMP_WORKDIR/graphify-rules.md"
+  write_managed_rule "$CODEX_DIR/AGENTS.md" "$TMP_WORKDIR/graphify-rules.md" graphify
+
+  installer_end 'Codex configurado com Engram, Serena, Context7, RTK, Ponytail e Graphify.'
   printf 'No Codex, abra /hooks para revisar e confiar nos hooks dos plugins e inicie nova sessao.\n'
 }
 

@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Pre-flight do grafo do Graphify sem custo de tokens: compara o estado do Git com o _meta
+# gravado em graphify-out/graph.json antes de qualquer consulta do agente.
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Uso: graphify-preflight [check|build|ensure] [DIR]
+
+  check   Informa se graphify-out/graph.json corresponde ao commit e a arvore atuais.
+          Saida: 0 atualizado, 1 desatualizado, 2 sem grafo, 3 fora de repositorio Git.
+  build   Gera ou atualiza o grafo de codigo (AST local, sem LLM) e grava o _meta.
+  ensure  check; se nao estiver atualizado, build. Padrao.
+
+DIR e qualquer pasta dentro do repositorio (padrao: diretorio atual). graphify-out/ e
+incluido em .git/info/exclude, sem alterar o .gitignore do projeto.
+EOF
+}
+
+die() { printf 'graphify-preflight: %s\n' "$*" >&2; exit 4; }
+
+cmd="${1:-ensure}"
+case "$cmd" in
+  check|build|ensure) shift || true ;;
+  -h|--help) usage; exit 0 ;;
+  *) cmd=ensure ;;
+esac
+dir="${1:-.}"
+[[ -d "$dir" ]] || die "pasta inexistente: $dir"
+command -v python3 >/dev/null 2>&1 || die 'python3 e necessario.'
+
+if ! root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)"; then
+  printf 'graphify: fora de repositorio Git (%s)\n' "$dir"
+  exit 3
+fi
+graph="$root/graphify-out/graph.json"
+
+head_commit() { git -C "$root" rev-parse -q --verify HEAD 2>/dev/null || true; }
+
+# Arquivos versionados ou novos fora de graphify-out/ (ignorados pelo .gitignore nao contam).
+is_dirty() {
+  [[ -n "$(git -C "$root" status --porcelain --untracked-files=normal -- . ':(exclude)graphify-out' 2>/dev/null)" ]]
+}
+
+# Hash da arvore de trabalho (versionados + novos nao ignorados), via indice temporario.
+worktree_hash() {
+  local tmp index
+  tmp="$(mktemp)"
+  index="$(git -C "$root" rev-parse --path-format=absolute --git-path index)"
+  if [[ -f "$index" ]]; then cp -- "$index" "$tmp"; else rm -f -- "$tmp"; fi
+  GIT_INDEX_FILE="$tmp" git -C "$root" add -A -- . ':(exclude)graphify-out' >/dev/null 2>&1
+  GIT_INDEX_FILE="$tmp" git -C "$root" write-tree
+  rm -f -- "$tmp"
+}
+
+meta_field() {
+  python3 - "$graph" "$1" <<'PY'
+import json, sys
+try:
+    meta = json.load(open(sys.argv[1], encoding="utf-8")).get("_meta") or {}
+except (OSError, ValueError):
+    meta = {}
+value = meta.get(sys.argv[2], "")
+print(str(value).lower() if isinstance(value, bool) else value)
+PY
+}
+
+# Imprime o estado e retorna 0, 1 ou 2.
+check() {
+  local current meta_commit meta_worktree
+  if [[ ! -s "$graph" ]]; then
+    printf 'graphify: sem grafo em %s\n' "${graph#"$root"/}"
+    return 2
+  fi
+  meta_commit="$(meta_field git_commit)"
+  if [[ -z "$(meta_field generator)" ]]; then
+    printf 'graphify: desatualizado (grafo sem _meta; gere com graphify-preflight build)\n'
+    return 1
+  fi
+  current="$(head_commit)"
+  # Caminho O(1): mesmo commit, arvore limpa agora e na geracao.
+  if [[ "$current" == "$meta_commit" && "$(meta_field dirty)" == false ]] && ! is_dirty; then
+    printf 'graphify: atualizado (commit %s, arvore limpa)\n' "${current:0:12}"
+    return 0
+  fi
+  meta_worktree="$(meta_field worktree_hash)"
+  if [[ -n "$meta_worktree" && "$(worktree_hash)" == "$meta_worktree" ]]; then
+    printf 'graphify: atualizado (arvore de trabalho igual a da geracao)\n'
+    return 0
+  fi
+  if [[ "$current" != "$meta_commit" ]]; then
+    printf 'graphify: desatualizado (grafo do commit %s; HEAD %s)\n' "${meta_commit:0:12}" "${current:0:12}"
+  else
+    printf 'graphify: desatualizado (arquivos alterados desde a geracao)\n'
+  fi
+  return 1
+}
+
+build() {
+  local exclude dirty=false
+  command -v graphify >/dev/null 2>&1 || die 'graphify ausente; instale o addon Graphify.'
+  exclude="$(git -C "$root" rev-parse --path-format=absolute --git-path info/exclude)"
+  mkdir -p "$(dirname -- "$exclude")"
+  grep -qxF 'graphify-out/' "$exclude" 2>/dev/null || printf '%s\n' 'graphify-out/' >> "$exclude"
+  if [[ -s "$graph" ]]; then
+    graphify update "$root" --force >&2
+  else
+    graphify extract "$root" --code-only >&2
+  fi
+  [[ -s "$graph" ]] || die "graphify nao gerou $graph."
+  ! is_dirty || dirty=true
+  python3 - "$graph" "$(head_commit)" "$(git -C "$root" rev-parse -q --verify 'HEAD^{tree}' 2>/dev/null || true)" \
+    "$(worktree_hash)" "$dirty" <<'PY'
+import datetime, json, os, sys, tempfile
+path, commit, tree, worktree, dirty = sys.argv[1:]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+data.pop("_meta", None)
+meta = {"git_commit": commit, "git_tree_hash": tree, "worktree_hash": worktree,
+        "dirty": dirty == "true", "generator": "graphify-preflight",
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+fd, tmp = tempfile.mkstemp(prefix=".graph.json.", dir=os.path.dirname(path))
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    json.dump({"_meta": meta, **data}, f, ensure_ascii=False)
+os.replace(tmp, path)
+PY
+  printf 'graphify: grafo gerado (commit %s%s)\n' "$(head_commit | cut -c1-12)" "$([[ "$dirty" == true ]] && echo ', com alteracoes locais')"
+}
+
+case "$cmd" in
+  check) check ;;
+  build) build ;;
+  ensure)
+    status=0
+    check || status=$?
+    if [[ "$status" != 0 ]]; then build; fi ;;
+esac

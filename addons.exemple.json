@@ -65,6 +65,9 @@
       "mode": "ultra",
       "quiet-startup": true,
       "hide-status": false
+    },
+    "graphify": {
+      "enabled": true
     }
   }
 }

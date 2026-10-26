@@ -117,7 +117,8 @@ Simulacao do Antigravity: sem alteracoes e sem acesso a rede.
   Antigravity: $ANTIGRAVITY_DIR (MCP em $MCP_CONFIG)
   • Exigir Ubuntu, usuario sem sudo e: curl, sha256sum, node, npm, python3, flock.
   • Conferir os MCPs engram, serena e context7 antes de baixar algo; recusar conflitos.
-  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), context7-mcp e RTK.
+  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), Graphify, context7-mcp e RTK.
+  • Graphify: skill do cliente, regra de uso e graphify-preflight; o grafo de cada repositorio e criado sob demanda.
   • MCPs: engram mcp --tools=$ENGRAM_TOOLS; serena ${SERENA_ARGV[*]}; context7-mcp.
   • Regras em GEMINI.md: Engram, Serena, Context7 e Ponytail (nivel $PONYTAIL_MODE); RTK fica no plugin.
   • RTK: rtk ${RTK_ARGV[*]} e conferir o hook do plugin.
@@ -149,7 +150,7 @@ EOF
     LEGACY_MCP_ARGV="$C7_LEGACY_MCP_ARGV" antigravity_mcp "$mode" context7 "$LOCAL_BIN/context7-mcp" ${C7_ARGS[@]+"${C7_ARGS[@]}"}
   done
 
-  for addon in engram serena context7 ponytail; do
+  for addon in engram serena context7 ponytail graphify; do
     addon_rules "$addon" "$TMP_WORKDIR/$addon-rules.md"
     antigravity_rules "$addon" "$TMP_WORKDIR/$addon-rules.md"
   done
@@ -163,7 +164,9 @@ EOF
     printf 'AVISO: CLI agy ausente; Ponytail aplicado so como regras no GEMINI.md.\n'
   fi
 
-  installer_end 'Antigravity configurado com Engram, Serena, Context7, RTK e Ponytail.'
+  graphify_skill antigravity .gemini/config/skills/graphify "$ANTIGRAVITY_DIR/config/skills/graphify"
+
+  installer_end 'Antigravity configurado com Engram, Serena, Context7, RTK, Ponytail e Graphify.'
 }
 
 # Carregado com source (testes), so define as funcoes.

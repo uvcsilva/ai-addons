@@ -1,6 +1,6 @@
-# Seis addons no Ubuntu — um instalador por provedor
+# Addons de IA no Ubuntu — um instalador por provedor
 
-**RTK, Serena, Engram, Context7, ccusage e Ponytail**, na mesma máquina e no mesmo
+**RTK, Serena, Engram, Context7, ccusage, Ponytail e Graphify**, na mesma máquina e no mesmo
 usuário. Suporte a Claude Code, Codex, Cline, OpenCode, Copilot CLI, Copilot no VS Code e Antigravity.
 OpenRouter é configurado como provedor dentro do cliente.
 
@@ -51,6 +51,7 @@ Os antigos `install-<addon>-ubuntu.sh` foram removidos; veja a migração na se�
 | Context7 | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) |
 | ccusage | Relatórios locais | Sem fonte Cline documentada | Relatórios locais | Relatórios locais | Sem fonte da extensão documentada | Sem fonte Antigravity documentada |
 | Ponytail | Plugin oficial | Regras oficiais | Plugin oficial (`opencode plugin`) | Plugin oficial | Regras oficiais | Regras oficiais + plugin de skills (com `agy`) |
+| Graphify | Skill + regra de uso | Regra de uso | Skill + plugin (lembrete) + regra | Skill + regra | Regra de uso | Skill + regra |
 
 O ccusage é uma CLI de relatórios; quem a instala é o `install-claude`, e os relatórios
 de outros clientes usam a mesma CLI.
@@ -119,7 +120,7 @@ continuam com instalação e autenticação próprias.
 
 **`--clients all` significa todos os clientes.** No bootstrap, a lista escolhe quais CLIs
 preparar; no `addons.json`, quais instaladores de provedor o `install-all` executa. Cada
-instalador de provedor sempre configura os seis addons. O `install-opencode` detecta o
+instalador de provedor sempre configura todos os addons. O `install-opencode` detecta o
 schema 1/2 com `opencode --version`; `bash install-dependencies-ubuntu.sh --clients all`
 instala o OpenCode e o Claude Code, e o bootstrap informa pendências ao terminar.
 Só use `--opencode-major 1|2` para preparar a configuração de uma versão conhecida;
@@ -327,7 +328,39 @@ de regras do provedor (`CLAUDE.md` do Claude, `AGENTS.md` global do Codex e os a
 regras dos demais), em blocos gerenciados, preservando instruções existentes e sem
 duplicação na reexecução. Engram, Ponytail e RTK mantêm suas integrações oficiais. Addons são
 usados conforme a tarefa; `ccusage` gera relatórios sob demanda. Visualize é um plugin
-adicional do Codex e não integra o conjunto de seis addons deste repositório.
+adicional do Codex e não integra o conjunto de addons deste repositório.
+
+### Graphify e o pre-flight do grafo
+
+O Graphify (`graphifyy`, via `uv`) monta um grafo do código do repositório em
+`graphify-out/graph.json`, por AST local, sem LLM e sem tokens. Cada instalador de provedor
+copia a skill oficial do Graphify para o cliente (gerada com `graphify install --platform`
+em HOME temporário, porque no Claude ela editaria o `CLAUDE.md` fora dos blocos
+gerenciados) e grava uma regra de uso. No OpenCode entra também o plugin `graphify.js`,
+que lembra o agente de consultar o grafo. Cline e Copilot no VS Code recebem só a regra.
+
+A regra manda o agente rodar `graphify-preflight ensure` (instalado em `~/.local/bin`)
+antes de varrer um repositório Git. O pre-flight resolve, sem chamar o modelo, se o grafo
+é confiável:
+
+- grava em `graph.json` um cabeçalho `_meta` com `git_commit`, `git_tree_hash`,
+  `worktree_hash` (árvore de trabalho, incluindo arquivos novos não ignorados),
+  `dirty` e `generated_at`;
+- caminho O(1): mesmo commit, árvore limpa agora e na geração → "atualizado", sem hashing;
+- com alterações locais, compara o hash da árvore de trabalho com o da geração; um commit
+  que só registra o que o grafo já viu continua "atualizado";
+- grafo ausente, sem `_meta` ou desatualizado → `ensure` gera (`graphify extract --code-only`)
+  ou atualiza (`graphify update --force`) e regrava o `_meta`.
+
+```bash
+graphify-preflight check   # 0 atualizado, 1 desatualizado, 2 sem grafo, 3 fora de repositório Git
+graphify-preflight ensure  # padrão: check e, se preciso, build
+graphify query "onde o lock é tomado?"
+```
+
+`graphify-out/` vai para `.git/info/exclude` do repositório (não altera o `.gitignore` e
+não suja o `git status`). Documentos, PDFs e imagens ficam fora do grafo automático; para
+incluí-los, use `/graphify` no agente, que usa o modelo do próprio cliente.
 
 ### Projeto do Serena
 
@@ -360,7 +393,7 @@ Cada instalador de provedor, nesta ordem:
 4. instala ou atualiza as ferramentas;
 5. configura os addons na ordem Engram (memória primeiro), Serena, Context7, RTK e Ponytail.
 
-Para os seis addons **somente no Codex**, após a preparação da seção 2:
+Para todos os addons **somente no Codex**, após a preparação da seção 2:
 
 ```bash
 bash install-codex-ubuntu.sh
@@ -497,6 +530,7 @@ chave, vale o padrão do addon e a configuração existente é preservada.
 | RTK | `exclude-commands` | lista | Comandos nunca reescritos (`hooks.exclude_commands`). |
 | RTK | `tracking`, `history-days` | `true`/`false`; inteiro | Registro local de economia de tokens e dias de histórico. |
 | ccusage | `settings` | objeto | Conteúdo no formato do `ccusage.json` oficial (`defaults`, `commands` e seções por agente), mesclado em `~/.config/claude/ccusage.json` (ou no primeiro diretório de `CLAUDE_CONFIG_DIR`). |
+| Graphify | — | — | Sem opções; `addons.graphify` aceita só `true`/`{"enabled": true}`. |
 
 Detalhes:
 
@@ -548,7 +582,8 @@ nativo (seção 1), o bloco de regras antigo correspondente é removido.
 - `lib/common.sh`: preâmbulo (checagens, bloqueio, backup, log) e blocos de regras gerenciados.
 - `lib/config.sh`: leitura e validação do `addons.json`.
 - `lib/addons.sh`: opções dos addons, argumentos MCP e textos das regras.
-- `lib/tools.sh`: instalação das ferramentas (Engram, uv + Serena, context7-mcp, RTK, ccusage).
+- `lib/tools.sh`: instalação das ferramentas (Engram, uv + Serena, Graphify, context7-mcp, RTK, ccusage).
+- `bin/graphify-preflight`: pre-flight do grafo, instalado em `~/.local/bin`.
 - `lib/json-mcp.sh`: editor de MCP em JSON/JSONC.
 - `install-<provedor>-ubuntu.sh`: tudo o que é específico do provedor.
 
@@ -793,9 +828,9 @@ anterior termina com sucesso.
 
 ## 9. Validação e limites conhecidos
 
-Em **26/10/2026**, os seis instaladores de provedor, o bootstrap, o orquestrador, a `lib/`
-e o adaptador OpenCode Desktop passaram pela verificação de sintaxe Bash e pelo ShellCheck.
-Os **104 testes** em `tests/` passaram. O CI do GitLab mantém essas verificações
+Em **26/10/2026**, os seis instaladores de provedor, o bootstrap, o orquestrador, a `lib/`, o
+`graphify-preflight` e o adaptador OpenCode Desktop passaram pela verificação de sintaxe Bash e pelo ShellCheck.
+Os **109 testes** em `tests/` passaram. O CI do GitLab mantém essas verificações
 ([.gitlab-ci.yml](.gitlab-ci.yml)). A suíte cobre:
 - a `lib/`: leitura e validação do `addons.json`, opções dos addons, textos das regras,
   blocos gerenciados e sua remoção, e o preâmbulo com bloqueio, backup e log;
@@ -809,6 +844,8 @@ Os **104 testes** em `tests/` passaram. O CI do GitLab mantém essas verificaç�
   próprios do provedor (por exemplo, schemas do OpenCode, superfícies do Copilot e
   isolamento dos setups em HOME temporário);
 - o orquestrador e o bootstrap;
+- o `graphify-preflight` com Git real: grafo ausente, gerado, atualizado, alterado,
+  commitado, sem `_meta`, subpasta, fora de repositório e Graphify ausente;
 - um teste que impede um instalador de redefinir uma função da `lib/`.
 
 O adaptador OpenCode Desktop é testado nas duas VMs, incluindo fallback, argumentos,
@@ -825,7 +862,7 @@ Para conferir localmente a sintaxe dos instaladores, da `lib/` e do adaptador se
 
 ```bash
 (
-for script in install-*-ubuntu.sh lib/*.sh opencode-desktop/ai-tooling-vm; do
+for script in install-*-ubuntu.sh lib/*.sh bin/* opencode-desktop/ai-tooling-vm; do
   bash -n "$script" || exit 1
 done
 )
@@ -850,6 +887,7 @@ Referências para os formatos e limites de integração usados pelos scripts:
 - [RTK](https://github.com/rtk-ai/rtk) (incluindo os adaptadores em `src/hooks/init/`).
 - [Go — instalação](https://go.dev/doc/install) e [gopls](https://go.dev/gopls/).
 - [Serena — clientes](https://github.com/oraios/serena/blob/main/docs/02-usage/030_clients.md) e [repositório](https://github.com/oraios/serena).
+- [Graphify](https://github.com/Graphify-Labs/graphify) (`graphifyy` no PyPI).
 - [Engram — setup](https://github.com/Gentleman-Programming/engram/blob/main/docs/AGENT-SETUP.md), [documentação](https://github.com/Gentleman-Programming/engram/blob/main/DOCS.md) e [implementação](https://github.com/Gentleman-Programming/engram/tree/main/internal/setup).
 - [Context7](https://github.com/upstash/context7), [ccusage e fontes suportadas](https://github.com/ccusage/ccusage/blob/main/README.md).
 - [Ponytail — instalação e portabilidade](https://github.com/DietrichGebert/ponytail/blob/main/INSTALL.md).
