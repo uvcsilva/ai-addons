@@ -151,8 +151,38 @@ PONYTAIL_RULES
         lite) printf '## Level: lite\n\nBuild what was asked. Name the smaller option in one line and let the user pick.\n' >> "$out" ;;
         ultra) printf '## Level: ultra\n\nAlso question the request: before building, push back on any part the need does not justify.\n' >> "$out" ;;
       esac ;;
+    graphify) cat > "$out" <<'RULES'
+## Graphify
+Before exploring a Git repository broadly (reading many files, searching across the tree or mapping its architecture), run `graphify-preflight ensure` in the repository. It compares the graph's recorded commit and tree hash with Git at no token cost, and creates or updates the local code graph (graphify-out/, offline AST extraction) when it is missing or stale. Then ask the graph first with `graphify query "<question>"`, `graphify explain "<symbol>"` or `graphify path "A" "B"`, and open only the files it points to. When the preflight reports the graph as current, trust it without re-checking. Do not commit graphify-out/; the preflight keeps it in .git/info/exclude. If graphify-preflight or graphify is unavailable, explore normally.
+RULES
+      ;;
     *) die "Addon sem regras gerenciadas: $1" ;;
   esac
+}
+
+# Uso: graphify_skill PLATAFORMA ORIGEM DESTINO. Roda graphify install em HOME temporario (no
+# Claude ele editaria o CLAUDE.md fora dos blocos gerenciados) e copia so a skill para DESTINO.
+# Deixa em GRAPHIFY_SCRATCH a pasta temporaria, para quem precisar de outro arquivo gerado.
+graphify_skill() {
+  local source dest="$3"
+  GRAPHIFY_SCRATCH="$TMP_WORKDIR/graphify-$1"
+  rm -rf -- "$GRAPHIFY_SCRATCH"
+  mkdir -p "$GRAPHIFY_SCRATCH/.config"
+  (cd "$GRAPHIFY_SCRATCH" && env -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u COPILOT_HOME \
+    HOME="$GRAPHIFY_SCRATCH" XDG_CONFIG_HOME="$GRAPHIFY_SCRATCH/.config" \
+    "$LOCAL_BIN/graphify" install --platform "$1" </dev/null) >&2
+  source="$GRAPHIFY_SCRATCH/$2"
+  [[ -f "$source/SKILL.md" ]] || die "graphify install --platform $1 nao gerou a skill esperada."
+  [[ ! -L "$dest" ]] || die "Revise o link simbolico antes de prosseguir: $dest"
+  if [[ -d "$dest" ]] && diff -rq -- "$source" "$dest" >/dev/null 2>&1; then
+    printf 'Skill graphify ja confere: %s\n' "$dest"
+    return 0
+  fi
+  backup_path "$dest"
+  rm -rf -- "$dest"
+  mkdir -p "${dest%/*}"
+  cp -R -- "$source" "$dest"
+  printf 'Skill graphify: %s\n' "$dest"
 }
 
 # Uso: rtk_cline_rules SAIDA. Regras do RTK para clientes sem hook de comando (rtk init --agent cline).

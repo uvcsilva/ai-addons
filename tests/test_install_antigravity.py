@@ -68,7 +68,8 @@ class AntigravityInstallerTest(ProviderInstallerTest):
             "start-mcp-server", "--context", "antigravity", "--project-from-cwd", "--add-mode", "no-memories",
             "--log-level", "INFO", "--add-mode", "planning"])
         rules = (self.gemini / "GEMINI.md").read_text()
-        for addon in ("engram", "serena", "context7", "ponytail"):
+        self.assert_graphify_skill(self.gemini / "config/skills/graphify")
+        for addon in ("engram", "serena", "context7", "ponytail", "graphify"):
             self.assertIn(f"<!-- six-addons:{addon}:begin -->", rules)
         self.assertNotIn("six-addons:rtk", rules)
 

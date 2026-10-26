@@ -120,7 +120,8 @@ class CodexInstallerTest(ProviderInstallerTest):
         self.assertIs(config["features"]["memories"], False)
         self.assertEqual(config["memories"], {"use_memories": False, "generate_memories": False})
         rules = (self.codex / "AGENTS.md").read_text()
-        for addon in ("serena", "context7"):
+        self.assert_graphify_skill(self.codex / "skills/graphify")
+        for addon in ("serena", "context7", "graphify"):
             self.assertIn(f"<!-- six-addons:{addon}:begin -->", rules)
         for addon in ("engram", "rtk", "ponytail"):
             self.assertNotIn(f"six-addons:{addon}", rules)

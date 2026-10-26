@@ -149,7 +149,8 @@ Simulacao do OpenCode: sem alteracoes e sem acesso a rede.
   • Exigir Ubuntu, usuario sem sudo e: curl, sha256sum, node, npm, python3, flock.
   • Recusar OPENCODE_CONFIG/CONTENT/DIR e opencode.json junto com opencode.jsonc.
   • Conferir os MCPs engram, serena e context7 antes de baixar algo; recusar conflitos.
-  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), context7-mcp e RTK.
+  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), Graphify, context7-mcp e RTK.
+  • Graphify: skill do cliente, regra de uso e graphify-preflight; o grafo de cada repositorio e criado sob demanda.
   • MCPs: engram mcp --tools=$ENGRAM_TOOLS; serena ${SERENA_ARGV[*]}; context7-mcp.
   • Plugins: engram.ts (engram setup opencode) e rtk.ts (rtk init --global --opencode), gerados
     com HOME temporario e copiados para $OPENCODE_DIR/plugins; statusline do Engram no tui.json.
@@ -203,7 +204,7 @@ EOF
   dir="$(plugin_from_scratch rtk "$LOCAL_BIN/rtk" init --global --opencode --auto-patch ${RTK_INIT_FLAGS[@]+"${RTK_INIT_FLAGS[@]}"})"
   install_plugin_file "$dir/plugins/rtk.ts" rtk.ts
 
-  for addon in engram serena context7; do
+  for addon in engram serena context7 graphify; do
     addon_rules "$addon" "$TMP_WORKDIR/$addon-rules.md"
     opencode_rules "$addon" "$TMP_WORKDIR/$addon-rules.md"
   done
@@ -220,7 +221,11 @@ EOF
     opencode_rules ponytail "$TMP_WORKDIR/ponytail-rules.md"
   fi
 
-  installer_end 'OpenCode configurado com Engram, Serena, Context7, RTK e Ponytail.'
+  # Skill global e o plugin que lembra o agente de consultar graphify-out/ antes do shell.
+  graphify_skill opencode .config/opencode/skills/graphify "$OPENCODE_DIR/skills/graphify"
+  install_plugin_file "$GRAPHIFY_SCRATCH/.opencode/plugins/graphify.js" graphify.js
+
+  installer_end 'OpenCode configurado com Engram, Serena, Context7, RTK, Ponytail e Graphify.'
 }
 
 # Carregado com source (testes), so define as funcoes.

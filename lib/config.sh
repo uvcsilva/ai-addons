@@ -31,6 +31,7 @@ ADDON_KEYS = {
             "exclude-commands", "tracking", "history-days"},
     "ccusage": {"settings"},
     "ponytail": {"mode", "quiet-startup", "hide-status"},
+    "graphify": set(),
 }
 ALL_ADDONS = "todos os addons sao instalados em cada provedor"
 
