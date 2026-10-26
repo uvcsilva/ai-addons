@@ -16,7 +16,7 @@ except ImportError:
     tomllib = None
 
 
-SCRIPTS = ("install-serena-ubuntu.sh", "install-context7-ubuntu.sh", "install-engram-ubuntu.sh")
+SCRIPTS = ("install-codex-ubuntu.sh",)
 
 
 @unittest.skipUnless(tomllib, "requires Python 3.11+ (tomllib)")

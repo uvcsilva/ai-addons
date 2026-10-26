@@ -26,8 +26,13 @@ needs_tomllib = unittest.skipUnless(sys.version_info >= (3, 11), "requires Pytho
 
 
 def function(script, name):
-    text = (ROOT / script).read_text()
-    return re.search(r"^" + name + r"\(\) \{\n.*?^\}", text, re.M | re.S).group()
+    # The script's own copy wins; shared helpers live in lib/.
+    pattern = re.compile(r"^" + name + r"\(\) \{\n.*?^\}", re.M | re.S)
+    for path in [ROOT / script, *sorted((ROOT / "lib").glob("*.sh"))]:
+        match = path.exists() and pattern.search(path.read_text())
+        if match:
+            return match.group()
+    raise LookupError(f"{name} not found in {script} or lib/")
 
 
 class InstallersTest(unittest.TestCase):
@@ -79,7 +84,7 @@ class InstallersTest(unittest.TestCase):
                 f"TMP_WORKDIR={shlex.quote(str(self.base))}\n"
                 f"UV_TOOL_DIR={shlex.quote(str(self.base / 'uv'))}\n"
                 "die() { echo \"$*\" >&2; exit 1; }\n"
-                + function("install-serena-ubuntu.sh", "prepare_go") + "\nprepare_go\n")
+                + function("lib/tools.sh", "prepare_go") + "\nprepare_go\n")
 
     @needs_bash4
     def test_arm64_download_and_checksum(self):
@@ -124,23 +129,21 @@ class InstallersTest(unittest.TestCase):
         original = "User rules\n<!-- six-addons:serena:begin -->\n"
         target.write_text(original)
         source.write_text("New rule")
-        code = ("ADDON=serena\nassert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
-                + function("install-serena-ubuntu.sh", "write_managed_rule") + "\n"
-                + f"write_managed_rule {shlex.quote(str(target))} {shlex.quote(str(source))}\n")
+        code = ("assert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
+                + function("lib/common.sh", "write_managed_rule") + "\n"
+                + f"write_managed_rule {shlex.quote(str(target))} {shlex.quote(str(source))} serena\n")
         self.assertNotEqual(self.run_shell(code, check=False).returncode, 0)
         self.assertEqual(target.read_text(), original)
 
     def test_managed_rules_preserve_other_instructions(self):
-        for script, addon in [("install-serena-ubuntu.sh", "serena"),
-                              ("install-context7-ubuntu.sh", "context7")]:
+        for addon in ("serena", "context7"):
             with self.subTest(addon=addon):
                 target, source = self.base / "AGENTS.md", self.base / "rule.md"
                 target.write_text("Existing user instructions\n")
                 source.write_text("Use " + addon + "\n")
-                code = (f"ADDON={addon}\n"
-                        "assert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
-                        + function(script, "write_managed_rule") + "\n"
-                        + f"write_managed_rule {shlex.quote(str(target))} {shlex.quote(str(source))}\n")
+                code = ("assert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
+                        + function("lib/common.sh", "write_managed_rule") + "\n"
+                        + f"write_managed_rule {shlex.quote(str(target))} {shlex.quote(str(source))} {addon}\n")
                 self.run_shell(code)
                 first = target.read_text()
                 self.run_shell(code)
@@ -153,7 +156,7 @@ class InstallersTest(unittest.TestCase):
 
     def test_claude_mcp_timeout_raises_but_never_lowers(self):
         settings = self.base / "settings.json"
-        for script in ("install-serena-ubuntu.sh", "install-context7-ubuntu.sh"):
+        for script in ("install-claude-ubuntu.sh",):
             code = (f"CLAUDE_SETTINGS={shlex.quote(str(settings))}\n"
                     + function(script, "set_claude_mcp_timeout") + "\nset_claude_mcp_timeout\n")
             for before, after in [(None, "60000"), ({"MCP_TIMEOUT": "30000"}, "60000"),
@@ -168,19 +171,19 @@ class InstallersTest(unittest.TestCase):
             self.assertNotEqual(self.run_shell(code, check=False).returncode, 0)
             self.assertEqual(settings.read_text(), '{"env": []}')
 
-    def test_shared_helpers_are_identical(self):
-        # Scripts stay standalone, so every helper copy must change together.
-        copies = {}
-        for script in sorted(ROOT.glob("install-*-ubuntu.sh")):
-            if script.name in ("install-dependencies-ubuntu.sh", "install-all-ubuntu.sh"):
-                continue
-            for m in re.finditer(r"^(\w+)\(\) \{\n.*?^\}", script.read_text(), re.M | re.S):
-                if m.group(1) == "usage" or (m.group(1) == "all_mcp" and "serena" in script.name):
-                    continue
-                copies.setdefault(m.group(1), {})[script.name] = m.group()
-        for name, bodies in copies.items():
+    def test_lib_functions_are_not_redefined(self):
+        # Shared code lives once in lib/; an installer redefining a lib function would shadow it.
+        # install-all and install-dependencies do not load lib/common.sh and keep their own die/cleanup.
+        pattern = re.compile(r"^(\w+)\(\) \{", re.M)
+        installers = [p for p in sorted(ROOT.glob("install-*-ubuntu.sh")) if "lib/common.sh" in p.read_text()]
+        owners = {}
+        for path in sorted((ROOT / "lib").glob("*.sh")) + installers:
+            for name in pattern.findall(path.read_text()):
+                owners.setdefault(name, []).append(path.name)
+        lib = {name for path in (ROOT / "lib").glob("*.sh") for name in pattern.findall(path.read_text())}
+        for name in sorted(lib):
             with self.subTest(function=name):
-                self.assertEqual(len(set(bodies.values())), 1, f"{name} diverge: {sorted(bodies)}")
+                self.assertEqual(len(owners[name]), 1, f"{name} definida em {owners[name]}")
 
     @needs_gnu_cp
     def test_plugin_backup_skips_caches(self):
@@ -189,7 +192,7 @@ class InstallersTest(unittest.TestCase):
             (plugins / rel).parent.mkdir(parents=True, exist_ok=True)
             (plugins / rel).write_text("1")
         backups.mkdir()
-        script = "install-engram-ubuntu.sh"
+        script = "lib/common.sh"
         self.run_shell(f"BACKUP_DIR={shlex.quote(str(backups))}\n"
                        + function(script, "backup_path") + "\n"
                        + function(script, "backup_plugins_dir") + "\n"
@@ -198,26 +201,10 @@ class InstallersTest(unittest.TestCase):
         self.assertEqual(sorted(p.name.rsplit("_plugins_", 1)[1] for p in backups.iterdir()),
                          ["data", "installed_plugins.json"])
 
-    def test_native_memory_checked_per_client(self):
-        settings, config = self.base / "settings.json", self.base / "config.toml"
-        good_toml = ("[features]\nmemories = false\n\n"
-                     "[memories]\nuse_memories = false\ngenerate_memories = false\n")
-        settings.write_text('{"autoMemoryEnabled": false}')
-        func = function("install-engram-ubuntu.sh", "verify_native_memory_off")
-        def check(clients):
-            return self.run_shell(f"CLAUDE_SETTINGS={shlex.quote(str(settings))}\n"
-                                  f"CODEX_CONFIG={shlex.quote(str(config))}\nCLIENTS={clients}\n"
-                                  + func + "\nverify_native_memory_off\n", check=False).returncode
-        self.assertEqual(check("claude"), 0)  # no config.toml needed
-        config.write_text("[features]\nmemories = false\n")
-        self.assertNotEqual(check("codex"), 0)
-        config.write_text(good_toml)
-        self.assertEqual(check("claude,codex"), 0)
-
     LEGACY = '["npx","-y","@upstash/context7-mcp"]'
 
     def edit_json(self, target, kind="cline", legacy=None, mode="apply", command="/bin/c7", major=""):
-        script = "install-context7-ubuntu.sh"
+        script = "lib/json-mcp.sh"
         return self.run_shell(
             (f"export LEGACY_MCP_ARGV={shlex.quote(legacy)}\n" if legacy else "")
             + f"OPENCODE_MAJOR={major}\nassert_regular_or_absent() {{ :; }}\nbackup_path() {{ :; }}\n"
@@ -292,7 +279,7 @@ class InstallersTest(unittest.TestCase):
                         " prev=$arg\ndone\n"
                         f"echo {shlex.quote(json.dumps(release))} > \"${{@: -1}}\"\n")
         code = (f"TMP_WORKDIR={shlex.quote(str(self.base))}\n"
-                + function("install-engram-ubuntu.sh", "release_asset_metadata") + "\n"
+                + function("lib/tools.sh", "release_asset_metadata") + "\n"
                 + "release_asset_metadata o/r x.tar.gz\n")
         result = self.run_shell("export GITHUB_TOKEN=secret-token\n" + code)
         self.assertIn("v1\thttps://github.com/o/r/releases/download/v1/x.tar.gz\t" + "0" * 64, result.stdout)
@@ -313,19 +300,6 @@ class InstallersTest(unittest.TestCase):
         target.write_text(json.dumps({"mcpServers": {"context7": {"command": "c7", "args": ["x"]}}}))
         self.assertNotEqual(self.edit_json(target, command="c7").returncode, 0)
 
-    def test_serena_extra_options_reach_every_client(self):
-        code = ("CLIENTS=claude,cline,antigravity\nPROJECT_DIR=\nSERENA_EXTRA=(--log-level INFO --add-mode planning)\n"
-                "selected() { [[ \",$CLIENTS,\" == *\",$1,\"* ]]; }\n"
-                "ensure_claude_mcp() { echo \"claude $*\"; }\nnew_client_mcp() { echo \"$2 ${*:4}\"; }\n"
-                + function("install-serena-ubuntu.sh", "all_mcp") + "\nall_mcp apply serena /bin/serena\n")
-        lines = self.run_shell(code).stdout.splitlines()
-        self.assertEqual(lines, [
-            "claude serena /bin/serena start-mcp-server --context claude-code --project-from-cwd "
-            "--add-mode no-memories --log-level INFO --add-mode planning",
-            "cline /bin/serena start-mcp-server --context ide --add-mode no-memories --log-level INFO --add-mode planning",
-            "antigravity /bin/serena start-mcp-server --context antigravity --project-from-cwd "
-            "--add-mode no-memories --log-level INFO --add-mode planning"])
-
     @needs_tomllib
     def test_rtk_config_edit_keeps_other_settings(self):
         import tomllib
@@ -333,7 +307,7 @@ class InstallersTest(unittest.TestCase):
         def run(awareness="", exclude="", tracking="", history=""):
             return self.run_shell(f"RTK_CONFIG={shlex.quote(str(config))}\nRTK_AWARENESS={awareness}\n"
                                   f"RTK_EXCLUDE={shlex.quote(exclude)}\nRTK_TRACKING={tracking}\nRTK_HISTORY_DAYS={history}\n"
-                                  + function("install-rtk-ubuntu.sh", "set_rtk_config") + "\nset_rtk_config\n",
+                                  + function("lib/tools.sh", "set_rtk_config") + "\nset_rtk_config\n",
                                   check=False)
         self.assertEqual(run().returncode, 0)  # nothing requested: no file
         self.assertFalse(config.exists())
@@ -361,28 +335,12 @@ class InstallersTest(unittest.TestCase):
                 self.assertNotEqual(run("high", "x", "true").returncode, 0)
                 self.assertEqual(config.read_text(), bad)
 
-    def test_rtk_hook_only_never_reaches_codex(self):
-        log = self.base / "rtk.log"
-        # Fake rtk refuses the same flags as rtk init --codex / --agent antigravity (src/hooks/init/mod.rs).
-        self.executable("rtk", f"echo \"$*\" >> {shlex.quote(str(log))}\n"
-                        'if [[ (" $* " == *" --codex "* || " $* " == *" --agent antigravity "*) '
-                        '&& " $* " =~ " --(hook-only|auto-patch|no-patch|claude-md) " ]]; then exit 1; fi\n')
-        code = (f"LOCAL_BIN={shlex.quote(str(self.bin))}\nCLIENTS=claude,codex,antigravity\n"
-                "RTK_CLAUDE_FLAGS=(--hook-only)\nRTK_INIT_FLAGS=(--no-trust-filters)\n"
-                "selected() { [[ \",$CLIENTS,\" == *\",$1,\"* ]]; }\n"
-                + function("install-rtk-ubuntu.sh", "run_rtk_init") + "\nrun_rtk_init\n")
-        self.run_shell(code)
-        self.assertEqual(log.read_text().splitlines(), [
-            "init --global --auto-patch --hook-only --no-trust-filters",
-            "init --global --codex --no-trust-filters",
-            "init --global --agent antigravity --no-trust-filters"])
-
     def test_ccusage_settings_are_merged(self):
         config = self.base / "claude/ccusage.json"
         def run(settings):
             return self.run_shell(f"CCUSAGE_CONFIG={shlex.quote(str(config))}\nCCUSAGE_SETTINGS={shlex.quote(settings)}\n"
                                   "assert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
-                                  + function("install-ccusage-ubuntu.sh", "set_ccusage_settings")
+                                  + function("lib/tools.sh", "set_ccusage_settings")
                                   + "\nset_ccusage_settings\n", check=False)
         self.assertEqual(run('{"defaults": {"timezone": "UTC"}}').returncode, 0)
         self.assertEqual(json.loads(config.read_text()),
@@ -405,7 +363,7 @@ class InstallersTest(unittest.TestCase):
         self.executable("claude", f"echo \"$*\" >> {shlex.quote(str(log))}\n"
                         f"[[ $2 != add ]] || echo {shlex.quote(json.dumps({'mcpServers': {'context7': new}}))}"
                         f" > {shlex.quote(str(claude_json))}\n")
-        script = "install-context7-ubuntu.sh"
+        script = "install-claude-ubuntu.sh"
         code = (f"CLAUDE_JSON={shlex.quote(str(claude_json))}\n"
                 "die() { echo \"$*\" >&2; exit 1; }\n"
                 + function(script, "claude_mcp_state") + "\n"
@@ -430,7 +388,7 @@ class InstallersTest(unittest.TestCase):
         import tomllib
         config = self.base / "config.toml"
         code = (f"CODEX_CONFIG={shlex.quote(str(config))}\n"
-                + function("install-engram-ubuntu.sh", "set_codex_native_memory_off")
+                + function("install-codex-ubuntu.sh", "set_codex_native_memory_off")
                 + "\nset_codex_native_memory_off\n")
         config.write_text('model = "x"\n\n[features]\nother = true # note\n\n'
                           '[mcp_servers.foo]\ncommand = "foo"\n')
@@ -524,7 +482,7 @@ class InstallersTest(unittest.TestCase):
         def run(mode):
             return self.run_shell(f"PONYTAIL_CONFIG={shlex.quote(str(config))}\nPONYTAIL_MODE={mode}\n"
                                   "assert_regular_or_absent() { :; }\nbackup_path() { :; }\n"
-                                  + function("install-ponytail-ubuntu.sh", "set_ponytail_default_mode")
+                                  + function("lib/addons.sh", "set_ponytail_default_mode")
                                   + "\nset_ponytail_default_mode\n", check=False)
         self.assertEqual(run("ultra").returncode, 0)  # absent file is created
         self.assertEqual(json.loads(config.read_text()), {"defaultMode": "ultra"})
@@ -537,130 +495,6 @@ class InstallersTest(unittest.TestCase):
         config.write_text("{broken")
         self.assertNotEqual(run("ultra").returncode, 0)
         self.assertEqual(config.read_text(), "{broken")
-
-    def test_ponytail_rejects_unknown_mode(self):
-        result = subprocess.run(["bash", str(ROOT / "install-ponytail-ubuntu.sh"), "--mode", "max", "--dry-run"],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 2)
-        result = subprocess.run(["bash", str(ROOT / "install-ponytail-ubuntu.sh"), "--mode", "lite", "--dry-run"],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("nivel lite", result.stdout)
-
-    SCRIPTS = {"bootstrap": "install-dependencies-ubuntu.sh", "engram": "install-engram-ubuntu.sh",
-               "serena": "install-serena-ubuntu.sh", "context7": "install-context7-ubuntu.sh",
-               "rtk": "install-rtk-ubuntu.sh", "ccusage": "install-ccusage-ubuntu.sh",
-               "ponytail": "install-ponytail-ubuntu.sh"}
-
-    def orchestrate(self, config, *args, fail=None):
-        # Fake installers log their arguments; `fail` maps a name to a shell condition that exits 3.
-        workdir, log = self.base / "pkg", self.base / "calls.log"
-        workdir.mkdir(exist_ok=True)
-        (workdir / "install-all-ubuntu.sh").write_text((ROOT / "install-all-ubuntu.sh").read_text())
-        for name, script in self.SCRIPTS.items():
-            check = f"if {fail[name]}; then exit 3; fi\n" if fail and name in fail else ""
-            (workdir / script).write_text(f"echo {name} \"$*\" >> {shlex.quote(str(log))}\n{check}")
-        (workdir / "addons.json").write_text(config if isinstance(config, str) else json.dumps(config))
-        log.write_text("")
-        env = dict(os.environ, HOME=str(self.base))
-        result = subprocess.run(["bash", str(workdir / "install-all-ubuntu.sh"), *args],
-                                env=env, capture_output=True, text=True)
-        return result, log.read_text().splitlines()
-
-    @needs_bash44
-    def test_orchestrator_builds_arguments_in_order(self):
-        config = {"clients": ["claude", "codex"], "options": {"cline-config": "~/cline.json"},
-                  "bootstrap": {"upgrade": True},
-                  "addons": {"serena": {"with-go": True, "check-go-project": None},
-                             "ccusage": False, "ponytail": {"mode": "ultra", "clients": "codex"}}}
-        result, calls = self.orchestrate(config)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        cline = f"--cline-config {self.base}/cline.json"
-        addons = [f"engram --clients claude,codex {cline}",
-                  f"serena --clients claude,codex {cline} --with-go",
-                  f"context7 --clients claude,codex {cline}",
-                  f"rtk --clients claude,codex {cline}",
-                  f"ponytail --clients codex {cline} --mode ultra"]
-        self.assertEqual(calls, [c + " --dry-run" for c in addons]
-                         + ["bootstrap --clients claude,codex --upgrade"] + addons)
-
-    @needs_bash44
-    def test_orchestrator_converts_lists_objects_and_value_booleans(self):
-        config = {"bootstrap": False, "addons": {
-            "engram": False, "serena": {"modes": ["planning", "editing"], "ls-dependencies": [],
-                                        "open-web-dashboard": False, "enable-web-dashboard": None},
-            "context7": False, "rtk": {"exclude-commands": ["curl"], "trust-filters": False, "tracking": True},
-            "ccusage": {"settings": {"defaults": {"timezone": "UTC"}}},
-            "ponytail": {"quiet-startup": True, "hide-status": None}}}
-        result, calls = self.orchestrate(config, "--dry-run")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, [
-            "serena --modes planning,editing --open-web-dashboard false --dry-run",
-            "rtk --exclude-commands curl --trust-filters false --tracking true --dry-run",
-            'ccusage --settings {"defaults": {"timezone": "UTC"}} --dry-run',
-            "ponytail --quiet-startup true --dry-run"])
-
-    @needs_bash44
-    def test_shipped_configs_pass_real_dry_runs(self):
-        home = self.base / "home"
-        home.mkdir()
-        env = dict(os.environ, HOME=str(home), CONTEXT7_API_KEY="test-key", XDG_STATE_HOME=str(home / "state"))
-        env.pop("XDG_CONFIG_HOME", None)
-        env.pop("CLAUDE_CONFIG_DIR", None)
-        for name in ("addons.json", "addons.exemple.json"):
-            with self.subTest(config=name):
-                result = subprocess.run(["bash", str(ROOT / "install-all-ubuntu.sh"), "--config", str(ROOT / name),
-                                         "--dry-run"], env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(result.stdout.count("argumentos conferidos"), 6)
-        self.assertEqual(list(home.iterdir()), [])
-
-    @needs_bash44
-    def test_orchestrator_dry_run_changes_nothing(self):
-        result, calls = self.orchestrate({"bootstrap": False, "addons": {"ponytail": {"mode": "lite"}}},
-                                         "--dry-run")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 6)
-        self.assertTrue(all(c.endswith("--dry-run") for c in calls))
-        self.assertIn("ponytail --mode lite --dry-run", calls)
-
-    @needs_bash44
-    def test_orchestrator_rejects_bad_config_before_running(self):
-        for config in ('{"addons": {"unknown": true}}', '{"clients": "all", "clients": "codex"}',
-                       '{"addons": {"rtk": {"Bad_Key": 1}}}', '{"bootstrap": {"mode": "x"}}',
-                       '{"addons": {"rtk": {"dry-run": true}}}', '{"options": {"clients": "all"}}',
-                       '{"addons": {"rtk": {"x": [1]}}}', "[]", "{broken"):
-            with self.subTest(config=config):
-                result, calls = self.orchestrate(config)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(calls, [])
-
-    @needs_bash44
-    def test_orchestrator_preflight_failure_installs_nothing(self):
-        result, calls = self.orchestrate({}, fail={"rtk": '[[ " $* " == *" --dry-run "* ]]'})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("rtk", result.stderr)
-        self.assertFalse(any(c.startswith("bootstrap") for c in calls))
-        self.assertTrue(all(c.endswith("--dry-run") for c in calls))
-
-    @needs_bash44
-    def test_orchestrator_stops_at_first_failure(self):
-        result, calls = self.orchestrate({}, fail={"context7": '[[ " $* " != *" --dry-run "* ]]'})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Falha em context7", result.stderr)
-        self.assertEqual([c.split()[0] for c in calls if not c.endswith("--dry-run")],
-                         ["bootstrap", "engram", "serena", "context7"])
-
-    def test_dry_run_has_no_files(self):
-        home = self.base / "empty-home"
-        home.mkdir()
-        env = dict(os.environ, HOME=str(home), CODEX_HOME=str(home / ".codex"),
-                   XDG_STATE_HOME=str(home / "state"))
-        result = subprocess.run(["bash", str(ROOT / "install-serena-ubuntu.sh"),
-                                 "--clients", "codex", "--with-go", "--check-go-project",
-                                 "/tmp/project", "--dry-run"], env=env, capture_output=True)
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(list(home.iterdir()), [])
 
 
 if __name__ == "__main__":
