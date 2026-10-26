@@ -73,11 +73,13 @@ class ToolsFlowTest(unittest.TestCase):
         log = 'printf "%s\\n" "$(basename "$0") $*" >> "$CALLS"\n'
         tpl = self.base / "tpl"
         tpl.mkdir()
-        for name in ("engram", "uvx", "rtk", "serena", "logger"):
+        for name in ("engram", "uvx", "rtk", "serena", "graphify", "logger"):
             self.executable(tpl / name, log)
-        # uv tool install creates the serena entry point, as the real uv does.
-        self.executable(tpl / "uv", log + f'[[ $1 != tool ]] || cp {shlex.quote(str(tpl / "serena"))} '
-                        f'{shlex.quote(str(self.bin / "serena"))}\n')
+        # uv tool install creates the tool's entry point, as the real uv does.
+        self.executable(tpl / "uv", log + '[[ $1 != tool ]] || case "${@: -1}" in\n'
+                        f'  serena-agent) cp {shlex.quote(str(tpl / "serena"))} {shlex.quote(str(self.bin / "serena"))} ;;\n'
+                        f'  graphifyy) cp {shlex.quote(str(tpl / "graphify"))} {shlex.quote(str(self.bin / "graphify"))} ;;\n'
+                        'esac\n')
         self.executable(self.fake / "npm", log + 'pkg="${@: -1}"; name="${pkg%@latest}"; name="${name##*/}"\n'
                         f'cp {shlex.quote(str(tpl / "logger"))} {shlex.quote(str(self.bin))}/"$name"\n')
         stubs = ("download_verified_release_asset() { printf '%s\\n' \"download $1\" >> \"$CALLS\"; echo v9; }\n"
@@ -92,9 +94,14 @@ class ToolsFlowTest(unittest.TestCase):
         names = [" ".join(line.split()[:2]) for line in self.calls.read_text().splitlines()]
         self.assertEqual(names, [
             "download Gentleman-Programming/engram", "engram version", "warn",
-            "download astral-sh/uv", "uv tool", "serena --version",
+            "download astral-sh/uv", "uv tool", "serena --version", "uv tool", "graphify --version",
             "npm install", "download rtk-ai/rtk", "rtk telemetry", "rtk config", "rtk --version",
             "npm install", "ccusage --version", "ccusage --help"])
+        uv_calls = [line for line in self.calls.read_text().splitlines() if line.startswith("uv tool")]
+        self.assertEqual(uv_calls[1], "uv tool install --upgrade -p 3.13 graphifyy")
+        preflight = self.bin / "graphify-preflight"
+        self.assertEqual(preflight.read_text(), (ROOT / "bin/graphify-preflight").read_text())
+        self.assertTrue(os.access(preflight, os.X_OK))
         self.assertIn('level = "high"', (self.base / ".config/rtk/config.toml").read_text())
         self.assertEqual(json.loads((self.base / ".config/claude/ccusage.json").read_text())["defaults"],
                          {"timezone": "UTC"})

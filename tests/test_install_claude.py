@@ -106,7 +106,8 @@ class ClaudeInstallerTest(ProviderInstallerTest):
         self.assertIs(settings["autoMemoryEnabled"], False)
         self.assertEqual(settings["env"]["MCP_TIMEOUT"], "60000")
         rules = (self.home / ".claude/CLAUDE.md").read_text()
-        for addon in ("serena", "context7"):
+        self.assert_graphify_skill(self.home / ".claude/skills/graphify")
+        for addon in ("serena", "context7", "graphify"):
             self.assertIn(f"<!-- six-addons:{addon}:begin -->", rules)
         for addon in ("engram", "rtk", "ponytail"):
             self.assertNotIn(f"six-addons:{addon}", rules)

@@ -6,6 +6,7 @@
 # Comandos que o instalador deve passar a installer_begin para instalar as ferramentas.
 # shellcheck disable=SC2034
 TOOLS_PREREQS=(curl sha256sum node npm)
+TOOLS_REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 RTK_CONFIG="${XDG_CONFIG_HOME:-$HOME_DIR/.config}/rtk/config.toml"
 # ccusage le o primeiro diretorio de CLAUDE_CONFIG_DIR, ou ~/.config/claude.
 if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then CCUSAGE_CONFIG="${CLAUDE_CONFIG_DIR%%,*}/ccusage.json"; else CCUSAGE_CONFIG="$HOME_DIR/.config/claude/ccusage.json"; fi
@@ -47,13 +48,13 @@ tools_check() {
     aarch64|arm64) ASSET_ARCH=arm64; RTK_ASSET='rtk-aarch64-unknown-linux-gnu.tar.gz'; UV_ASSET='uv-aarch64-unknown-linux-gnu.tar.gz' ;;
     *) die "Arquitetura nao suportada: $(uname -m). Use x86_64 ou aarch64." ;;
   esac
-  for path in "$LOCAL_BIN/engram" "$LOCAL_BIN/rtk" "$RTK_CONFIG" "$LOCAL_BIN/uv" "$LOCAL_BIN/uvx"; do
+  for path in "$LOCAL_BIN/engram" "$LOCAL_BIN/rtk" "$RTK_CONFIG" "$LOCAL_BIN/uv" "$LOCAL_BIN/uvx" "$LOCAL_BIN/graphify-preflight"; do
     assert_regular_or_absent "$path"
     backup_path "$path"
   done
 }
 
-# Instala Engram, uv+Serena, context7-mcp e RTK, nessa ordem (depois de tools_check).
+# Instala Engram, uv+Serena, Graphify, context7-mcp e RTK, nessa ordem (depois de tools_check).
 tools_install() {
   local tag
   local -a serena_ls=()
@@ -84,6 +85,12 @@ tools_install() {
   fi
   "$LOCAL_BIN/serena" --version
   if [[ -n "$CHECK_GO_PROJECT" ]]; then check_go_project; fi
+
+  "$LOCAL_BIN/uv" tool install --upgrade -p 3.13 graphifyy
+  [[ -x "$LOCAL_BIN/graphify" ]] || die 'uv nao criou ~/.local/bin/graphify.'
+  "$LOCAL_BIN/graphify" --version
+  # O pre-flight compara o _meta do grafo com o Git antes de o agente consultar o grafo.
+  install -m 0755 "$TOOLS_REPO_DIR/bin/graphify-preflight" "$LOCAL_BIN/graphify-preflight"
 
   npm install --global --prefix "$HOME_DIR/.local" --registry=https://registry.npmjs.org --engine-strict=true @upstash/context7-mcp@latest
   [[ -x "$LOCAL_BIN/context7-mcp" ]] || die 'context7-mcp nao apareceu em ~/.local/bin.'

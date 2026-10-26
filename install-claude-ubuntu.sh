@@ -308,7 +308,8 @@ Simulacao do Claude: sem alteracoes e sem acesso a rede.
   Claude: $CLAUDE_DIR (MCP de usuario em $CLAUDE_JSON)
   • Exigir Ubuntu, usuario sem sudo e: claude, git, jq, curl, sha256sum, node, npm, python3, flock.
   • Fazer backup das configuracoes do Claude e conferir os MCPs e o marketplace antes de baixar algo.
-  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), context7-mcp, RTK e ccusage.
+  • Instalar ou atualizar em ~/.local: Engram, uv + Serena (Go: $WITH_GO), Graphify, context7-mcp, RTK e ccusage.
+  • Graphify: skill do cliente, regra de uso e graphify-preflight; o grafo de cada repositorio e criado sob demanda.
   • RTK global: telemetria=${RTK_TELEMETRY:-preservar}, recall=${RTK_RECALL:-preservar}, config.toml em $RTK_CONFIG.
   • ccusage.json ($CCUSAGE_CONFIG): $([[ -n "$CCUSAGE_SETTINGS" ]] && echo 'mesclar settings' || echo 'nao alterado').
   • Engram: autoMemoryEnabled=false, engram setup claude-code, MCP engram mcp --tools=$ENGRAM_TOOLS.
@@ -364,7 +365,11 @@ EOF
   [[ -z "${PONYTAIL_DEFAULT_MODE:-}" || "$PONYTAIL_DEFAULT_MODE" == "$PONYTAIL_MODE" ]] \
     || printf 'AVISO: PONYTAIL_DEFAULT_MODE=%s no ambiente tem prioridade sobre o config.json.\n' "$PONYTAIL_DEFAULT_MODE"
 
-  installer_end 'Claude configurado com Engram, Serena, Context7, RTK, ccusage e Ponytail.'
+  graphify_skill claude .claude/skills/graphify "$CLAUDE_DIR/skills/graphify"
+  addon_rules graphify "$TMP_WORKDIR/graphify-rules.md"
+  write_managed_rule "$CLAUDE_DIR/CLAUDE.md" "$TMP_WORKDIR/graphify-rules.md" graphify
+
+  installer_end 'Claude configurado com Engram, Serena, Context7, RTK, ccusage, Ponytail e Graphify.'
 }
 
 # Carregado com source (testes), so define as funcoes.

@@ -18,6 +18,32 @@ STUBS = ("tools_check() { echo tools_check >> \"$CALLS\"; }\n"
 FAKE_SERENA = ('#!/bin/sh\nprintf "serena %s\\n" "$*" >> "$CALLS"\n'
                'echo "--context --project-from-cwd --add-mode --log-level --agent-interface --open-web-dashboard"\n')
 
+# Like graphify 0.9.96: a skill under the client's config dir, a CLAUDE.md edit outside managed
+# blocks, and an OpenCode plugin written relative to the cwd.
+FAKE_GRAPHIFY = r'''#!/usr/bin/env python3
+import os, pathlib, sys
+args = sys.argv[1:]
+home = pathlib.Path(os.environ["HOME"])
+config = pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+with open(os.environ["CALLS"], "a") as f:
+    f.write("graphify " + " ".join(args) + "\n")
+skills = {"claude": home / ".claude/skills/graphify", "codex": home / ".codex/skills/graphify",
+          "opencode": config / "opencode/skills/graphify", "copilot": home / ".copilot/skills/graphify",
+          "antigravity": home / ".gemini/config/skills/graphify"}
+if args[:2] == ["install", "--platform"]:
+    skill = skills[args[2]]
+    (skill / "references").mkdir(parents=True, exist_ok=True)
+    (skill / "SKILL.md").write_text("---\nname: graphify\n---\n# /graphify\n")
+    (skill / "references/query.md").write_text("graphify query\n")
+    if args[2] == "claude":
+        (home / ".claude/CLAUDE.md").write_text("# graphify\n- unmanaged section\n")
+    if args[2] == "opencode":
+        pathlib.Path(".opencode/plugins").mkdir(parents=True, exist_ok=True)
+        pathlib.Path(".opencode/plugins/graphify.js").write_text("// graphify OpenCode plugin\n")
+elif args == ["--version"]:
+    print("graphify 0.9.96")
+'''
+
 ENV_TO_DROP = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "CLINE_MCP_SETTINGS_PATH", "XDG_CONFIG_HOME",
                "XDG_STATE_HOME", "PONYTAIL_DEFAULT_MODE", "CONTEXT7_API_KEY", "OPENCODE_CONFIG",
                "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")
@@ -46,6 +72,14 @@ class ProviderInstallerTest(unittest.TestCase):
             self.executable(self.fake / name, "#!/bin/sh\nexit 0\n")
         self.executable(self.local_bin / "serena", FAKE_SERENA)
         self.executable(self.local_bin / "context7-mcp", "#!/bin/sh\nexit 0\n")
+        self.executable(self.local_bin / "graphify", FAKE_GRAPHIFY)
+
+    def assert_graphify_skill(self, skill_dir):
+        """The skill was copied from the scratch HOME; the real HOME got nothing else from graphify."""
+        self.assertEqual((skill_dir / "SKILL.md").read_text(), "---\nname: graphify\n---\n# /graphify\n")
+        self.assertTrue((skill_dir / "references/query.md").is_file())
+        claude_md = self.home / ".claude/CLAUDE.md"
+        self.assertFalse(claude_md.exists() and "unmanaged section" in claude_md.read_text())
 
     def executable(self, path, body):
         path.write_text(body)
