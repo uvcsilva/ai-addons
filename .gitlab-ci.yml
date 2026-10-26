@@ -5,6 +5,6 @@ test:
     - apt-get update
     - apt-get install -y --no-install-recommends python3 shellcheck
   script:
-    - for f in install-*-ubuntu.sh opencode-desktop/ai-tooling-vm; do bash -n "$f"; done
-    - shellcheck -S warning install-*-ubuntu.sh opencode-desktop/ai-tooling-vm
+    - for f in install-*-ubuntu.sh opencode-desktop/ai-tooling-vm lib/*.sh; do bash -n "$f"; done
+    - shellcheck -x -S warning install-*-ubuntu.sh opencode-desktop/ai-tooling-vm lib/*.sh
     - python3 -m unittest discover -v tests

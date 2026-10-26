@@ -12,7 +12,7 @@ from test_installers import function
 
 class SerenaGoCheckTest(unittest.TestCase):
     def run_check(self, field, failed=False, text='{"0": [{"name": "main"}]}'):
-        source = function("install-serena-ubuntu.sh", "check_go_project")
+        source = function("lib/tools.sh", "check_go_project")
         source = source.split("<<'PYCHECK'\n", 1)[1].rsplit("\nPYCHECK", 1)[0]
         result = SimpleNamespace(content=[SimpleNamespace(text=text)], **{field: failed})
         starts, calls = [], []
