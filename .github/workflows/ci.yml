@@ -41,6 +41,7 @@ jobs:
           output=$(sudo runuser -u tester -- python3 -m unittest discover -v -s "$GITHUB_WORKSPACE/tests" 2>&1)
           status=$?
           if (( status != 0 )); then
+            output=$(printf '%s\n' "$output" | tail -n 30)
             output=${output//%/%25}
             output=${output//$'\r'/%0D}
             output=${output//$'\n'/%0A}
