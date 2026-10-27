@@ -862,8 +862,9 @@ anterior termina com sucesso.
 
 Em **26/10/2026**, os sete instaladores de provedor, o bootstrap, o orquestrador, a `lib/`, o
 `graphify-preflight` e o adaptador OpenCode Desktop passaram pela verificação de sintaxe Bash e pelo ShellCheck.
-Os **115 testes** em `tests/` passaram. O CI do GitLab mantém essas verificações
-([.gitlab-ci.yml](.gitlab-ci.yml)). A suíte cobre:
+Os **115 testes** em `tests/` passaram. Os CIs do GitLab e do GitHub Actions mantêm essas
+verificações ([.gitlab-ci.yml](.gitlab-ci.yml) e
+[.github/workflows/ci.yml](.github/workflows/ci.yml)). A suíte cobre:
 - a `lib/`: leitura e validação do `addons.json`, opções dos addons, textos das regras,
   blocos gerenciados e sua remoção, e o preâmbulo com bloqueio, backup e log;
 - a instalação das ferramentas: Go simulado, checksum, preservação de ferramentas
