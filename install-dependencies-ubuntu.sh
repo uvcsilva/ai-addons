@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepara as dependencias comuns dos seis instaladores no Ubuntu.
+# Prepara as dependencias comuns dos sete instaladores no Ubuntu.
 set -Eeuo pipefail
 umask 077
 
@@ -44,12 +44,12 @@ Prepara os pre-requisitos para os seis addons no Ubuntu:
   curl, git, jq, Python 3, sha256sum, flock, Node.js LTS, npm, npx e os CLIs
   dos clientes selecionados (Codex CLI sempre).
 
-  --clients LISTA  claude,codex,cline,opencode,copilot,vscode,antigravity ou all.
+  --clients LISTA  claude,codex,kimi,cline,opencode,copilot,vscode,antigravity ou all.
                    Padrao: codex. Instala via npm, somente se ausente:
                    claude=@anthropic-ai/claude-code, codex=@openai/codex,
-                   cline=cline, opencode=opencode-ai@1, copilot=@github/copilot.
-                   vscode e antigravity sao instalados separadamente.
-                   Use a mesma lista depois nos seis instaladores.
+                   kimi=@moonshot-ai/kimi-code, cline=cline, opencode=opencode-ai@1,
+                   copilot=@github/copilot. vscode e antigravity sao instalados separadamente.
+                   Use a mesma lista depois nos instaladores de provedor.
   --with-opencode  Equivale a incluir opencode em --clients.
                    Preserva OpenCode 1 ou 2 existente e valida sua versao.
   --upgrade        Atualiza os CLIs selecionados que este script instalou em
@@ -59,7 +59,7 @@ Prepara os pre-requisitos para os seis addons no Ubuntu:
 
 Execute como usuario normal. O script usa sudo somente para instalar pacotes do
 Ubuntu e nao autentica os clientes. Na primeira execucao, rode: codex login
-(e claude, cline auth, copilot conforme os clientes escolhidos).
+(e claude, cline auth, copilot e kimi, depois /login, conforme os clientes).
 EOF
 }
 
@@ -79,12 +79,12 @@ done
 normalize_clients() {
   local client
   local -a client_list
-  [[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,cline,opencode,copilot,vscode,antigravity'
+  [[ "$CLIENTS" != all ]] || CLIENTS='claude,codex,kimi,cline,opencode,copilot,vscode,antigravity'
   [[ "$CLIENTS" != ,* && "$CLIENTS" != *, && "$CLIENTS" != *,,* ]] || die 'Lista de clientes invalida.'
   IFS=, read -r -a client_list <<< "$CLIENTS"
   for client in "${client_list[@]}"; do
     case "$client" in
-      claude|codex|cline|opencode|copilot|vscode|antigravity) ;;
+      claude|codex|kimi|cline|opencode|copilot|vscode|antigravity) ;;
       openrouter) die 'OpenRouter e provedor: use --clients cline,opencode e escolha OpenRouter no cliente.' ;;
       *) die "Cliente desconhecido: $client" ;;
     esac
@@ -231,9 +231,20 @@ install_client_cli() {
   command -v "$binary" >/dev/null 2>&1 || die "$name foi instalado, mas $binary nao esta no PATH."
 }
 
+verify_kimi_code() {
+  kimi migrate --help >/dev/null 2>&1 \
+    || die 'Kimi CLI legado detectado; instale o Kimi Code atual e revise kimi migrate antes de continuar.'
+}
+
 CLI_BINARIES=()
 if selected codex; then install_client_cli 'Codex' codex '@openai/codex@latest'; CLI_BINARIES+=(codex); fi
 if selected claude; then install_client_cli 'Claude Code' claude '@anthropic-ai/claude-code@latest'; CLI_BINARIES+=(claude); fi
+if selected kimi; then
+  if command -v kimi >/dev/null 2>&1; then verify_kimi_code; fi
+  install_client_cli 'Kimi Code' kimi '@moonshot-ai/kimi-code@latest'
+  verify_kimi_code
+  CLI_BINARIES+=(kimi)
+fi
 if selected cline; then install_client_cli 'Cline CLI' cline 'cline@latest'; CLI_BINARIES+=(cline); fi
 if selected copilot; then install_client_cli 'Copilot CLI' copilot '@github/copilot@latest'; CLI_BINARIES+=(copilot); fi
 
@@ -261,6 +272,7 @@ command -v flock >/dev/null 2>&1 || die 'flock nao foi instalado.'
 printf '\nClientes preparados: %s\n' "$CLIENTS"
 printf 'Autentique o Codex com: codex login\n'
 if selected claude; then printf 'Autentique o Claude Code executando: claude\n'; fi
+if selected kimi; then printf 'Autentique o Kimi Code executando: kimi (depois /login)\n'; fi
 if selected cline; then printf 'Autentique o Cline CLI com: cline auth\n'; fi
 if selected copilot; then printf 'Autentique o Copilot CLI executando: copilot (depois /login)\n'; fi
 if selected vscode; then
@@ -280,7 +292,7 @@ fi
 printf 'O PATH foi salvo em %s; abra uma nova sessao para aplica-lo.\n' "$PROFILE"
 printf 'Para aplicar agora neste terminal: export PATH="$HOME/.local/bin:$PATH"\n'
 printf '\nOs seis addons podem ser instalados somente no Codex com --clients codex.\n'
-printf -- '--clients all seleciona sete clientes; nao significa somente os seis addons.\n'
+printf -- '--clients all seleciona oito clientes; nao significa somente os seis addons.\n'
 if ! command -v opencode >/dev/null 2>&1; then
   printf 'OpenCode ausente: reexecute este bootstrap com --clients all ou --with-opencode.\n'
 fi

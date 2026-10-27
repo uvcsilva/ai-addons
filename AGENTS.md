@@ -64,10 +64,26 @@ python3 -m unittest discover -v tests
   logs). **Não execute um instalador sem `--dry-run` no `HOME` real**: ele grava nas
   configurações dos clientes do usuário. Para ensaios reais, use um `HOME` temporário ou um
   ambiente descartável.
+- Em `orb -m <vm> bash -lc`, inclua sempre `cd /caminho/absoluto/do/repositorio &&` no
+  shell da VM: o diretório de trabalho do chamador não é preservado. Antes de `git init`,
+  `graphify-preflight build|ensure` ou instaladores, confira `pwd` para não escrever no
+  `HOME` por engano.
+
+## Validação de integrações
+
+- Registro em `mcp.json`, versão do executável e `kimi doctor` não provam funcionamento:
+  o diagnóstico do Kimi confere os arquivos TOML, não chamadas MCP. Teste handshake e uma
+  chamada real de leitura; quando possível, repita pelo modelo do cliente. Diferencie MCPs,
+  skills e regras: RTK e Ponytail no Kimi não são hooks/plugins interativos.
+- Para validar o Kimi ponta a ponta, abra a sessão na raiz do projeto, confie na pasta e
+  conclua `/login`. Em um workspace descartável e conhecido,
+  `KIMI_CODE_TRUST_WORKSPACE=1` substitui apenas a confirmação interativa, não o login.
+  Não grave memórias de teste no Engram sem necessidade; prefira `mem_search` e análise de
+  símbolos do Serena.
 
 ## Mapa
 
-- `install-<provedor>-ubuntu.sh` (`claude`, `codex`, `copilot`, `cline`, `opencode` e
+- `install-<provedor>-ubuntu.sh` (`claude`, `codex`, `kimi`, `copilot`, `cline`, `opencode` e
   `antigravity`): todo o código específico de um provedor. O fluxo fica em `main()`, que só
   roda quando o script é executado diretamente; os testes o carregam com `source`.
 - `install-all-ubuntu.sh`: lê o `addons.json` e roda o bootstrap e um instalador por

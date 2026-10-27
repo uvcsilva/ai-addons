@@ -29,7 +29,7 @@ with open(os.environ["CALLS"], "a") as f:
     f.write("graphify " + " ".join(args) + "\n")
 skills = {"claude": home / ".claude/skills/graphify", "codex": home / ".codex/skills/graphify",
           "opencode": config / "opencode/skills/graphify", "copilot": home / ".copilot/skills/graphify",
-          "antigravity": home / ".gemini/config/skills/graphify"}
+          "antigravity": home / ".gemini/config/skills/graphify", "kimi": home / ".kimi/skills/graphify"}
 if args[:2] == ["install", "--platform"]:
     skill = skills[args[2]]
     (skill / "references").mkdir(parents=True, exist_ok=True)
@@ -40,13 +40,15 @@ if args[:2] == ["install", "--platform"]:
     if args[2] == "opencode":
         pathlib.Path(".opencode/plugins").mkdir(parents=True, exist_ok=True)
         pathlib.Path(".opencode/plugins/graphify.js").write_text("// graphify OpenCode plugin\n")
+    if args[2] == "kimi":
+        (home / ".kimi/AGENTS.md").write_text("# graphify\n- unmanaged section\n")
 elif args == ["--version"]:
     print("graphify 0.9.96")
 '''
 
 ENV_TO_DROP = ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "CLINE_MCP_SETTINGS_PATH", "XDG_CONFIG_HOME",
                "XDG_STATE_HOME", "PONYTAIL_DEFAULT_MODE", "CONTEXT7_API_KEY", "OPENCODE_CONFIG",
-               "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR")
+               "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "KIMI_CODE_HOME")
 
 
 @unittest.skipUnless(IS_UBUNTU, "installer_begin requires Ubuntu")
@@ -80,6 +82,7 @@ class ProviderInstallerTest(unittest.TestCase):
         self.assertTrue((skill_dir / "references/query.md").is_file())
         claude_md = self.home / ".claude/CLAUDE.md"
         self.assertFalse(claude_md.exists() and "unmanaged section" in claude_md.read_text())
+        self.assertFalse((self.home / ".kimi").exists())
 
     def executable(self, path, body):
         path.write_text(body)
