@@ -38,7 +38,13 @@ class OpenCodeDesktopVmTest(unittest.TestCase):
             "    f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
         )
         self.orb.chmod(0o755)
-        self.env = dict(os.environ, HOME=str(self.home), ORB_BIN=str(self.orb), ORB_LOG=str(self.orb_log))
+        self.env = dict(
+            os.environ,
+            HOME=str(self.home),
+            XDG_CONFIG_HOME=str(self.home / ".config"),
+            ORB_BIN=str(self.orb),
+            ORB_LOG=str(self.orb_log),
+        )
 
     def run_adapter(self, tool, *args, cwd=None):
         return subprocess.run([str(ADAPTER), tool, *args], cwd=cwd or self.primary, env=self.env,
