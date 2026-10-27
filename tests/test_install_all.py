@@ -9,9 +9,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 STEPS = {"bootstrap": "install-dependencies-ubuntu.sh", "claude": "install-claude-ubuntu.sh",
-         "codex": "install-codex-ubuntu.sh", "cline": "install-cline-ubuntu.sh",
-         "opencode": "install-opencode-ubuntu.sh", "copilot": "install-copilot-ubuntu.sh",
-         "antigravity": "install-antigravity-ubuntu.sh"}
+         "codex": "install-codex-ubuntu.sh", "kimi": "install-kimi-ubuntu.sh",
+         "cline": "install-cline-ubuntu.sh", "opencode": "install-opencode-ubuntu.sh",
+         "copilot": "install-copilot-ubuntu.sh", "antigravity": "install-antigravity-ubuntu.sh"}
 
 
 class InstallAllTest(unittest.TestCase):
@@ -41,7 +41,7 @@ class InstallAllTest(unittest.TestCase):
     def test_plan_follows_clients(self):
         cases = [
             ({}, ["bootstrap", "claude", "codex"]),
-            ({"clients": "all"}, ["bootstrap", "claude", "codex", "cline", "opencode", "copilot", "antigravity"]),
+            ({"clients": "all"}, ["bootstrap", "claude", "codex", "kimi", "cline", "opencode", "copilot", "antigravity"]),
             ({"clients": ["antigravity", "copilot", "claude"]}, ["bootstrap", "claude", "copilot", "antigravity"]),
             ({"clients": "cline", "bootstrap": False}, ["cline"]),
         ]
@@ -78,7 +78,7 @@ class InstallAllTest(unittest.TestCase):
     def test_dry_run_changes_nothing(self):
         result, calls, _ = self.orchestrate({"clients": "all"}, "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 7)
         self.assertTrue(all(c.endswith("--dry-run") for c in calls))
         self.assertIn("Simulacao concluida", result.stdout)
 
@@ -103,7 +103,7 @@ class InstallAllTest(unittest.TestCase):
         result, calls, _ = self.orchestrate({"clients": "all"}, fail={"cline": '[[ " $* " != *" --dry-run "* ]]'})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Falha em cline", result.stderr)
-        self.assertEqual([c.split()[0] for c in self.run_calls(calls)], ["bootstrap", "claude", "codex", "cline"])
+        self.assertEqual([c.split()[0] for c in self.run_calls(calls)], ["bootstrap", "claude", "codex", "kimi", "cline"])
 
     def test_missing_lib_or_config_fails_clearly(self):
         workdir = self.base / "alone"
@@ -119,14 +119,14 @@ class InstallAllTest(unittest.TestCase):
         home = self.base / "home"
         home.mkdir()
         env = dict(os.environ, HOME=str(home), CONTEXT7_API_KEY="test-key", XDG_STATE_HOME=str(home / "state"))
-        for key in ("XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME"):
+        for key in ("XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "COPILOT_HOME", "KIMI_CODE_HOME"):
             env.pop(key, None)
         for name in ("addons.json", "addons.exemple.json"):
             with self.subTest(config=name):
                 result = subprocess.run(["bash", str(ROOT / "install-all-ubuntu.sh"), "--config", str(ROOT / name),
                                          "--dry-run"], cwd="/", env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(result.stdout.count("argumentos conferidos"), 6)
+                self.assertEqual(result.stdout.count("argumentos conferidos"), 7)
                 self.assertIn("Superficies: cli,vscode", result.stdout)
         self.assertEqual(list(home.iterdir()), [])
 

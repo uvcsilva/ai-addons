@@ -168,7 +168,7 @@ graphify_skill() {
   GRAPHIFY_SCRATCH="$TMP_WORKDIR/graphify-$1"
   rm -rf -- "$GRAPHIFY_SCRATCH"
   mkdir -p "$GRAPHIFY_SCRATCH/.config"
-  (cd "$GRAPHIFY_SCRATCH" && env -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u COPILOT_HOME \
+  (cd "$GRAPHIFY_SCRATCH" && env -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u COPILOT_HOME -u KIMI_CODE_HOME \
     HOME="$GRAPHIFY_SCRATCH" XDG_CONFIG_HOME="$GRAPHIFY_SCRATCH/.config" \
     "$LOCAL_BIN/graphify" install --platform "$1" </dev/null) >&2
   source="$GRAPHIFY_SCRATCH/$2"
@@ -192,6 +192,15 @@ rtk_cline_rules() {
   (cd "$dir" && "$LOCAL_BIN/rtk" init --agent cline)
   [[ -s "$dir/.clinerules" ]] || die 'RTK nao gerou instrucoes esperadas.'
   cp -- "$dir/.clinerules" "$1"
+}
+
+# Uso: rtk_kimi_rules SAIDA. Gera as regras do Kimi em temporario, sem tocar no projeto atual.
+rtk_kimi_rules() {
+  local dir="$TMP_WORKDIR/rtk-kimi-rules"
+  mkdir -p "$dir"
+  (cd "$dir" && "$LOCAL_BIN/rtk" init --agent kimi)
+  [[ -s "$dir/AGENTS.md" ]] || die 'RTK nao gerou instrucoes esperadas para Kimi.'
+  cp -- "$dir/AGENTS.md" "$1"
 }
 
 set_ponytail_default_mode() {

@@ -18,7 +18,7 @@ import json, os, sys
 
 path = sys.argv[1]
 TOP_KEYS = {"$schema", "clients", "options", "bootstrap", "addons"}
-CLIENTS = ["claude", "codex", "cline", "opencode", "copilot", "vscode", "antigravity"]
+CLIENTS = ["claude", "codex", "kimi", "cline", "opencode", "copilot", "vscode", "antigravity"]
 OPTION_KEYS = {"cline-config", "vscode-user-dir", "opencode-major", "project-dir"}
 BOOTSTRAP_KEYS = {"enabled", "clients", "upgrade", "with-opencode"}
 ADDON_KEYS = {
