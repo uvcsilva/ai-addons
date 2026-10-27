@@ -268,6 +268,13 @@ class InstallersTest(unittest.TestCase):
         self.assertEqual(json.loads(ag_target.read_text())["mcpServers"]["context7"],
                          {"command": "/bin/c7", "args": []})
         self.assertEqual(self.edit_json(ag_target, kind="antigravity", mode="verify").returncode, 0)
+        kimi_target = self.base / "kimi-mcp.json"
+        kimi_target.write_text(json.dumps({"mcpServers": {"other": {"command": "other"}}}))
+        self.assertEqual(self.edit_json(kimi_target, kind="kimi").returncode, 0)
+        self.assertEqual(json.loads(kimi_target.read_text())["mcpServers"]["context7"],
+                         {"command": "/bin/c7", "args": []})
+        self.assertEqual(self.edit_json(kimi_target, kind="kimi", mode="verify").returncode, 0)
+        self.assertIn("other", json.loads(kimi_target.read_text())["mcpServers"])
 
     def test_github_token_stays_out_of_argv(self):
         args, header = self.base / "curl-args", self.base / "curl-header"
@@ -433,7 +440,7 @@ class InstallersTest(unittest.TestCase):
 
     def test_bootstrap_client_selection(self):
         for clients, opencode, expected in [
-                ("all", "false", "claude,codex,cline,opencode,copilot,vscode,antigravity"),
+                ("all", "false", "claude,codex,kimi,cline,opencode,copilot,vscode,antigravity"),
                 ("claude", "false", "codex,claude"),
                 ("codex", "true", "codex,opencode"),
                 ("opencode,codex", "true", "opencode,codex")]:
@@ -451,6 +458,17 @@ class InstallersTest(unittest.TestCase):
                                 capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Falta valor", result.stderr)
+
+    def test_bootstrap_kimi_code_rejects_legacy_cli(self):
+        code = ("die() { echo \"$*\" >&2; exit 1; }\n"
+                + function("install-dependencies-ubuntu.sh", "verify_kimi_code")
+                + "\nverify_kimi_code\n")
+        self.executable("kimi", '[[ "$*" == "migrate --help" ]]\n')
+        self.run_shell(code)
+        self.executable("kimi", '[[ "$*" != "migrate --help" ]]\n')
+        result = self.run_shell(code, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Kimi CLI legado detectado", result.stderr)
 
     def test_bootstrap_cli_install_and_upgrade(self):
         home, log = self.base / "home", self.base / "npm.log"
