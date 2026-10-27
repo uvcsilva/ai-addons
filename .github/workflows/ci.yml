@@ -31,8 +31,8 @@ jobs:
       - name: Preparar usuário comum
         run: |
           sudo useradd -m tester
-          sudo chown -R tester:tester "$GITHUB_WORKSPACE/tests"
+          sudo chown -R tester:tester "$GITHUB_WORKSPACE"
 
       - name: Executar testes
         working-directory: ${{ github.workspace }}
-        run: sudo -u tester -H python3 -m unittest discover -v tests
+        run: sudo runuser -u tester -- python3 -m unittest discover -v tests
