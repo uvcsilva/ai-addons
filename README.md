@@ -257,16 +257,27 @@ plugin, o bloco Ponytail sai do `AGENTS.md`.
 ### OpenCode Desktop com addons na VM OrbStack
 
 O fluxo Ubuntu acima permanece inalterado. Para o OpenCode Desktop no macOS usando os
-binários instalados por este repositório na `***removed***` ou `***removed***`, o adaptador
+binários instalados por este repositório em VMs OrbStack, o adaptador
 [`opencode-desktop/ai-tooling-vm`](opencode-desktop/ai-tooling-vm) escolhe a VM e o
-diretório pelo `PWD`. Fora dos volumes compartilhados, os MCPs usam `/home/***removed***` na
-`***removed***`; o RTK exige um projeto dentro de um dos volumes.
+diretório pelo `PWD`. Em projetos montados a partir de `/home/<usuario>` ou `/root`,
+ele também infere o usuário e o home da VM. Fora dos volumes compartilhados, os MCPs
+usam os valores locais de `ai-tooling-vm.conf`; o RTK exige um projeto dentro de um
+volume OrbStack.
 
 Instale o adaptador no host, a partir deste repositório montado pelo OrbStack:
 
 ```bash
 install -d ~/.config/opencode/bin
 install -m 0755 opencode-desktop/ai-tooling-vm ~/.config/opencode/bin/ai-tooling-vm
+```
+
+Crie `~/.config/opencode/ai-tooling-vm.conf` com os valores da VM padrão, usados fora
+dos volumes e em projetos fora dos diretórios pessoais convencionais:
+
+```sh
+AI_TOOLING_VM_NAME='sua-vm'
+AI_TOOLING_VM_USER='seu-usuario'
+AI_TOOLING_VM_HOME='/home/seu-usuario'
 ```
 
 Mescle somente estas entradas em `~/.config/opencode/opencode.jsonc`, trocando
@@ -862,9 +873,8 @@ anterior termina com sucesso.
 
 Em **26/10/2026**, os sete instaladores de provedor, o bootstrap, o orquestrador, a `lib/`, o
 `graphify-preflight` e o adaptador OpenCode Desktop passaram pela verificação de sintaxe Bash e pelo ShellCheck.
-Os **115 testes** em `tests/` passaram. Os CIs do GitLab e do GitHub Actions mantêm essas
-verificações ([.gitlab-ci.yml](.gitlab-ci.yml) e
-[.github/workflows/ci.yml](.github/workflows/ci.yml)). A suíte cobre:
+Os **115 testes** em `tests/` passaram. A CI do GitHub Actions mantém essas
+verificações ([.github/workflows/ci.yml](.github/workflows/ci.yml)). A suíte cobre:
 - a `lib/`: leitura e validação do `addons.json`, opções dos addons, textos das regras,
   blocos gerenciados e sua remoção, e o preâmbulo com bloqueio, backup e log;
 - a instalação das ferramentas: Go simulado, checksum, preservação de ferramentas
