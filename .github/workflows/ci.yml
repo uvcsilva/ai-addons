@@ -35,4 +35,19 @@ jobs:
 
       - name: Executar testes
         working-directory: ${{ github.workspace }}
-        run: sudo runuser -u tester -- python3 -m unittest discover -v -s "$GITHUB_WORKSPACE/tests"
+        run: |
+          set +e
+          output=$(sudo runuser -u tester -- bash -c '
+            pwd
+            stat -c "%A %U %G %n" . "$1" "$1/tests"
+            python3 -m unittest discover -v -s "$1/tests"
+          ' _ "$GITHUB_WORKSPACE" 2>&1)
+          status=$?
+          if (( status != 0 )); then
+            output=${output//%/%25}
+            output=${output//$'\r'/%0D}
+            output=${output//$'\n'/%0A}
+            echo "::error::$output"
+            exit "$status"
+          fi
+          printf '%s\n' "$output"
