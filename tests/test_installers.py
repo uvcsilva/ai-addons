@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -79,7 +80,14 @@ class InstallersTest(unittest.TestCase):
         tool = self.base / "uv/serena-agent/bin"
         tool.mkdir(parents=True)
         (tool / "python").symlink_to(sys.executable)
-        return (f"HOME_DIR={shlex.quote(str(self.base))}\n"
+        # Hosted Ubuntu images can provide Go in /usr/bin; expose only fixture dependencies.
+        system_bin = self.base / "system-bin"
+        system_bin.mkdir()
+        (system_bin / "python3").symlink_to(sys.executable)
+        for name in ("chmod", "cp", "ln", "mkdir", "mv", "sha256sum"):
+            (system_bin / name).symlink_to(shutil.which(name, path="/usr/bin:/bin"))
+        return (f"PATH={shlex.quote(str(self.bin) + ':' + str(system_bin))}\n"
+                f"HOME_DIR={shlex.quote(str(self.base))}\n"
                 f"LOCAL_BIN={shlex.quote(str(self.bin))}\n"
                 f"TMP_WORKDIR={shlex.quote(str(self.base))}\n"
                 f"UV_TOOL_DIR={shlex.quote(str(self.base / 'uv'))}\n"
