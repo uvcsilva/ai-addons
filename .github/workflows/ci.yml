@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v7
+
+      - name: Instalar dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3 shellcheck git
+
+      - name: Verificar sintaxe Bash
+        run: |
+          for file in install-*-ubuntu.sh opencode-desktop/ai-tooling-vm lib/*.sh bin/*; do
+            bash -n "$file"
+          done
+
+      - name: Executar ShellCheck
+        run: shellcheck -x -S warning install-*-ubuntu.sh opencode-desktop/ai-tooling-vm lib/*.sh bin/*
+
+      - name: Preparar usuário comum
+        run: |
+          sudo useradd -m tester
+          sudo chown -R tester:tester "$GITHUB_WORKSPACE"
+          sudo chmod o+x /home/runner /home/runner/work "$(dirname "$GITHUB_WORKSPACE")"
+
+      - name: Executar testes
+        working-directory: ${{ github.workspace }}
+        run: sudo runuser -u tester -- python3 -m unittest discover -v -s "$GITHUB_WORKSPACE/tests"

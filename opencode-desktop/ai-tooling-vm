@@ -1,6 +1,6 @@
 #!/bin/sh
 # Run shared VM tools from OpenCode Desktop without installing a second stack.
-# VM and user are detected from PWD; the addons stack lives in ***removed***.
+# VM, user and home are detected from standard OrbStack home paths.
 set -eu
 
 tool=${1:?Usage: ai-tooling-vm serena|context7|engram|rtk|ccusage [args...]}
@@ -10,37 +10,50 @@ case "$tool" in
     *) printf 'Unsupported tool: %s\n' "$tool" >&2; exit 2 ;;
 esac
 
+config_file=${XDG_CONFIG_HOME:-$HOME/.config}/opencode/ai-tooling-vm.conf
+if [ -f "$config_file" ]; then
+    # shellcheck source=/dev/null
+    . "$config_file"
+fi
+
 orb_bin=${ORB_BIN:-/usr/local/bin/orb}
-pessoal_root="$HOME/OrbStack/***removed***"
-***removed***_root="$HOME/OrbStack/***removed***"
+orbstack_root="$HOME/OrbStack"
 
 case "$PWD" in
-    "$***removed***_root"/*)
-        vm_name=***removed***
-        vm_user=***removed***
-        vm_home=/home/***removed***
-        vm_directory=${PWD#"$***removed***_root"}
-        in_volume=1
-        ;;
-    "$pessoal_root"/*)
-        vm_name=***removed***
-        vm_user=***removed***
-        vm_home=/home/***removed***
-        vm_directory=${PWD#"$pessoal_root"}
+    "$orbstack_root"/*/*)
+        relative=${PWD#"$orbstack_root"/}
+        vm_name=${relative%%/*}
+        vm_relative=${relative#*/}
+        case "$vm_relative" in
+            home/*)
+                user_and_project=${vm_relative#home/}
+                vm_user=${user_and_project%%/*}
+                vm_home=/home/$vm_user
+                ;;
+            root|root/*)
+                vm_user=root
+                vm_home=/root
+                ;;
+            *)
+                vm_user=${AI_TOOLING_VM_USER:?Set AI_TOOLING_VM_USER for projects outside Linux home directories}
+                vm_home=${AI_TOOLING_VM_HOME:?Set AI_TOOLING_VM_HOME for projects outside Linux home directories}
+                ;;
+        esac
+        vm_directory=/$vm_relative
         in_volume=1
         ;;
     *)
-        # Outside both volumes: MCP servers fall back to the addons home.
-        vm_name=***removed***
-        vm_user=***removed***
-        vm_home=/home/***removed***
+        # Outside OrbStack volumes: MCP servers use the configured addons home.
+        vm_name=${AI_TOOLING_VM_NAME:?Set AI_TOOLING_VM_NAME in ai-tooling-vm.conf}
+        vm_user=${AI_TOOLING_VM_USER:?Set AI_TOOLING_VM_USER in ai-tooling-vm.conf}
+        vm_home=${AI_TOOLING_VM_HOME:?Set AI_TOOLING_VM_HOME in ai-tooling-vm.conf}
         vm_directory=$vm_home
         in_volume=0
         ;;
 esac
 
 if [ "$tool" = rtk ] && [ "$in_volume" -eq 0 ]; then
-    printf 'RTK requires a project inside %s or %s.\n' "$pessoal_root" "$***removed***_root" >&2
+    printf 'RTK requires a project inside an OrbStack volume.\n' >&2
     exit 2
 fi
 
