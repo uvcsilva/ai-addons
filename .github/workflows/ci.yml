@@ -34,4 +34,15 @@ jobs:
           sudo chown -R tester:tester "$GITHUB_WORKSPACE/tests"
 
       - name: Executar testes
-        run: sudo -u tester -H python3 -m unittest discover -v tests
+        run: |
+          set +e
+          output=$(sudo -u tester -H python3 -m unittest discover -v tests 2>&1)
+          status=$?
+          if (( status != 0 )); then
+            output=${output//%/%25}
+            output=${output//$'\r'/%0D}
+            output=${output//$'\n'/%0A}
+            echo "::error::$output"
+            exit "$status"
+          fi
+          printf '%s\n' "$output"
