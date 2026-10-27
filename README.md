@@ -1,7 +1,7 @@
 # Addons de IA no Ubuntu — um instalador por provedor
 
 **RTK, Serena, Engram, Context7, ccusage, Ponytail e Graphify**, na mesma máquina e no mesmo
-usuário. Suporte a Claude Code, Codex, Cline, OpenCode, Copilot CLI, Copilot no VS Code e Antigravity.
+usuário. Suporte a Claude Code, Codex, Kimi Code, Cline, OpenCode, Copilot CLI, Copilot no VS Code e Antigravity.
 OpenRouter é configurado como provedor dentro do cliente.
 
 Há **um instalador por provedor**. Cada um instala ou atualiza as ferramentas dos addons
@@ -12,6 +12,7 @@ provedor oferece de nativo:
 |---|---|
 | `install-claude-ubuntu.sh` | Claude Code (CLI); também instala o ccusage |
 | `install-codex-ubuntu.sh` | OpenAI Codex CLI |
+| `install-kimi-ubuntu.sh` | Moonshot AI Kimi Code CLI (`~/.kimi-code`) |
 | `install-copilot-ubuntu.sh` | GitHub Copilot: `--surfaces cli,vscode` (padrão: as duas) |
 | `install-cline-ubuntu.sh` | Cline (CLI ou extensão) |
 | `install-opencode-ubuntu.sh` | OpenCode 1 ou 2 |
@@ -43,34 +44,35 @@ Os antigos `install-<addon>-ubuntu.sh` foram removidos; veja a migração na se�
 
 ## 1. Compatibilidade real
 
-| Addon | Claude Code / Codex | Cline | OpenCode 1 / 2 | Copilot CLI | Copilot VS Code | Antigravity |
-|---|---|---|---|---|---|---|
-| RTK | Hooks globais | Regras | Plugin `rtk.ts` + regras | Hook PreToolUse (`rtk init --copilot`) | Regras | Plugin/hook oficial |
-| Serena | MCP, contextos próprios | MCP, contexto `ide` | MCP, contexto `ide` | MCP, `copilot-cli` | MCP, `vscode` | MCP, contexto `antigravity` |
-| Engram | MCP + setup/plugin oficial | MCP + protocolo por instruções | MCP + plugin `engram.ts` + instruções | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções |
-| Context7 | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) |
-| ccusage | Relatórios locais | Sem fonte Cline documentada | Relatórios locais | Relatórios locais | Sem fonte da extensão documentada | Sem fonte Antigravity documentada |
-| Ponytail | Plugin oficial | Regras oficiais | Plugin oficial (`opencode plugin`) | Plugin oficial | Regras oficiais | Regras oficiais + plugin de skills (com `agy`) |
-| Graphify | Skill + regra de uso | Regra de uso | Skill + plugin (lembrete) + regra | Skill + regra | Regra de uso | Skill + regra |
+| Addon | Claude Code / Codex | Kimi Code | Cline | OpenCode 1 / 2 | Copilot CLI | Copilot VS Code | Antigravity |
+|---|---|---|---|---|---|---|---|
+| RTK | Hooks globais | Regras oficiais, sem hook | Regras | Plugin `rtk.ts` + regras | Hook PreToolUse (`rtk init --copilot`) | Regras | Plugin/hook oficial |
+| Serena | MCP, contextos próprios | MCP, contexto `ide` | MCP, contexto `ide` | MCP, contexto `ide` | MCP, `copilot-cli` | MCP, `vscode` | MCP, contexto `antigravity` |
+| Engram | MCP + setup/plugin oficial | MCP + `engram setup kimi` | MCP + protocolo por instruções | MCP + plugin `engram.ts` + instruções | MCP + protocolo por instruções | MCP + protocolo por instruções | MCP + protocolo por instruções |
+| Context7 | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) | MCP local (npm) |
+| ccusage | Relatórios locais | Não instalado automaticamente | Sem fonte Cline documentada | Relatórios locais | Relatórios locais | Sem fonte da extensão documentada | Sem fonte Antigravity documentada |
+| Ponytail | Plugin oficial | Regras oficiais, sem plugin interativo | Regras oficiais | Plugin oficial (`opencode plugin`) | Plugin oficial | Regras oficiais | Regras oficiais + plugin de skills (com `agy`) |
+| Graphify | Skill + regra de uso | Skill + regra de uso | Regra de uso | Skill + plugin (lembrete) + regra | Skill + regra | Regra de uso | Skill + regra |
 
 O ccusage é uma CLI de relatórios; quem a instala é o `install-claude`, e os relatórios
 de outros clientes usam a mesma CLI.
 
 **Regras não equivalem a hooks/plugins.** Onde o addon não tem integração nativa para o
-cliente (RTK no Cline e no VS Code; Ponytail no Cline, no VS Code e no Antigravity; Engram
-fora de Claude, Codex e OpenCode), o agente precisa seguir as instruções. Não há reescrita
+cliente (RTK no Kimi, Cline e VS Code; Ponytail no Kimi, Cline, VS Code e Antigravity; Engram
+fora de Claude, Codex, Kimi e OpenCode), o agente precisa seguir as instruções. Não há reescrita
 automática de comandos pelo RTK, o nível do Ponytail fica fixo nas regras (sem troca por
 `/ponytail` nem injeção automática em subagentes), e salvar/recuperar no Engram depende do
 agente, sem hooks de ciclo de sessão ou recuperação automática após compactação.
 
 Onde existe integração nativa, o instalador do provedor a usa (seção 3): plugins
 `engram.ts`, `rtk.ts` e Ponytail no OpenCode; hook RTK e plugin Ponytail no Copilot CLI;
-plugin RTK do Antigravity e, com o CLI `agy`, o plugin de skills do Ponytail. Quando o
-plugin injeta as mesmas regras, o bloco antigo sai do arquivo de instruções. Nenhum
-instalador escreve em arquivos de outro provedor: setups que fariam isso (`engram setup
-opencode`, `rtk init --opencode`) rodam com HOME temporário, e só o plugin é copiado.
+plugin RTK do Antigravity e, com o CLI `agy`, o plugin de skills do Ponytail; setup nativo
+do Engram no Kimi. Quando o plugin injeta as mesmas regras, o bloco antigo sai do arquivo
+de instruções. Nenhum instalador escreve em arquivos de outro provedor: setups que fariam
+isso (`engram setup opencode`, `rtk init --opencode`) rodam com HOME temporário, e só o
+plugin é copiado.
 
-Serena recebe **`--add-mode no-memories` em todos os sete clientes**. Engram é a
+Serena recebe **`--add-mode no-memories` em todos os oito clientes**. Engram é a
 memória persistente escolhida; veja as etapas necessárias para exclusividade na seção 6.
 
 ## 2. Preparação
@@ -101,10 +103,15 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Cada CLI selecionado é instalado via npm em `~/.local`, somente se ausente:
-Claude Code (`@anthropic-ai/claude-code`), Codex (`@openai/codex`), Cline CLI
-(`cline`), OpenCode 1 (`opencode-ai@1`) e Copilot CLI (`@github/copilot`). VS Code é
-um editor e continua sendo instalado separadamente. O Codex é sempre incluído.
-Autentique cada cliente depois (`codex login`, `claude`, `cline auth`, `copilot`).
+Claude Code (`@anthropic-ai/claude-code`), Codex (`@openai/codex`), Kimi Code
+(`@moonshot-ai/kimi-code`), Cline CLI (`cline`), OpenCode 1 (`opencode-ai@1`) e Copilot CLI
+(`@github/copilot`). VS Code é um editor e continua sendo instalado separadamente. O Codex
+é sempre incluído. Autentique cada cliente depois (`codex login`, `claude`, `cline auth`,
+`copilot`; no Kimi, abra `kimi` e use `/login`).
+
+O bootstrap distingue o Kimi Code atual do antigo `kimi-cli` Python pela ajuda de
+`kimi migrate`. Se encontrar o CLI legado, ele para sem migrar nem sobrescrever a instalação;
+instale o Kimi Code atual e revise `kimi migrate` manualmente antes de continuar.
 
 Para também preparar OpenCode:
 
@@ -135,9 +142,10 @@ ao terminal que o iniciou; por isso os exemplos incluem `export PATH=...`.
 
 - Ubuntu Linux, Bash 4+, usuário normal, sem executar os scripts com `sudo`.
 - x86_64 ou aarch64/arm64 para os instaladores de binários.
-- Instale e autentique os clientes que pretende usar. `install-claude` e `install-codex`
-  exigem o CLI do provedor no PATH. Os demais configuram sem CLI, mas o plugin Ponytail
-  precisa de `opencode`, `copilot` ou `agy`; sem eles, o Ponytail fica só nas regras.
+- Instale e autentique os clientes que pretende usar. `install-claude`, `install-codex` e
+  `install-kimi` exigem o CLI do provedor no PATH. Os demais configuram sem CLI, mas o
+  plugin Ponytail precisa de `opencode`, `copilot` ou `agy`; sem eles, o Ponytail fica só
+  nas regras.
 - Feche os agentes e editores durante a alteração. O bloqueio protege apenas contra
   outros instaladores deste pacote, não contra edições externas.
 - Use versões atuais dos clientes. Claude/Codex precisam oferecer MCP e plugins.
@@ -145,7 +153,7 @@ ao terminal que o iniciou; por isso os exemplos incluem `export PATH=...`.
 | Script | Pré-requisitos básicos |
 |---|---|
 | Todos os instaladores de provedor | curl, sha256sum, Node.js, npm, Python 3, flock (ferramentas dos addons) |
-| `install-claude`, `install-codex` | também o CLI do provedor, `git` e `jq` (plugins e setup do Engram) |
+| `install-claude`, `install-codex`, `install-kimi` | também o CLI do provedor, `git` e `jq` (plugins e setup do Engram) |
 
 `flock` vem de `util-linux`; `sha256sum`, de `coreutils`. São necessários também os
 utilitários básicos do Ubuntu (`install`, `tee`, `sed`, `mktemp`, entre outros).
@@ -179,7 +187,7 @@ Opções dos instaladores de provedor (nenhuma se aplica a `install-dependencies
 | `--vscode-user-dir DIR` | copilot | Pasta User do perfil VS Code. |
 | `--cline-config ARQUIVO` | cline | Arquivo MCP do Cline CLI ou da extensão. |
 | `--opencode-major 1\|2` | opencode | Schema MCP instalado; sem ela, detecta por `opencode --version`. |
-| `--project-dir DIR` | cline, opencode, copilot, antigravity | Projeto fixo do Serena (no Copilot, só no VS Code). |
+| `--project-dir DIR` | kimi, cline, opencode, copilot, antigravity | Projeto fixo do Serena (no Copilot, só no VS Code). |
 
 As flags prevalecem sobre `options` do `addons.json` (seção 4.1). `--dry-run` não acessa
 a rede, não cria logs/arquivos e não instala nada. Ele mostra o plano, não confirma que
@@ -189,11 +197,30 @@ as dependências ou configurações da máquina são válidas.
 |---|---|
 | Claude | Configuração de usuário via CLI; respeita `CLAUDE_CONFIG_DIR`. |
 | Codex | Configuração de usuário via CLI; respeita `CODEX_HOME`. |
+| Kimi Code | `${KIMI_CODE_HOME:-~/.kimi-code}/mcp.json` (chave `mcpServers`), regras em `AGENTS.md` e skill Graphify em `skills/graphify/`. |
 | Cline | **Padrão da CLI:** `~/.cline/data/settings/cline_mcp_settings.json`. Também aceita `CLINE_MCP_SETTINGS_PATH`. |
 | OpenCode | `${XDG_CONFIG_HOME:-~/.config}/opencode/opencode.json` ou `.jsonc`, se já existir; plugins em `opencode/plugins/` e no `plugin` do config. |
 | Copilot CLI | `${COPILOT_HOME:-~/.copilot}/mcp-config.json`, chave `mcpServers`; hook RTK em `hooks/rtk-rewrite.json`; plugin Ponytail via `copilot plugin`. |
 | Copilot VS Code | `${XDG_CONFIG_HOME:-~/.config}/Code/User/mcp.json`, chave `servers`. |
 | Antigravity | `~/.gemini/config/mcp_config.json` (chave `mcpServers`), regras globais em `~/.gemini/GEMINI.md` e plugin RTK em `~/.gemini/config/plugins/rtk/`. |
+
+### Kimi Code
+
+O instalador usa o Kimi Code CLI atual da Moonshot AI, não o antigo `kimi-cli` Python.
+`KIMI_CODE_HOME` precisa ser um caminho absoluto quando definida. O Engram usa
+`engram setup kimi`; Serena, Context7 e o próprio Engram ficam em `mcp.json`. As regras
+oficiais do RTK são geradas em diretório temporário e incorporadas a `AGENTS.md`, sem hook.
+Ponytail também fica somente em regras, sem plugin interativo. O Graphify instala apenas a
+skill, e o pre-flight continua sob demanda. No Graphify 0.9.96, a saída `--platform kimi`
+ainda usa o diretório legado `.kimi`; o instalador lê essa skill no HOME temporário e a copia
+para o Kimi Code atual, sem criar `.kimi` no HOME real.
+
+Antes do primeiro uso, abra `kimi` na raiz do projeto, escolha **Trust this folder** e
+conclua `/login`. Sem a confiança na pasta, o Kimi não carrega os MCPs; sem modelo
+configurado, não é possível validar uma conversa ponta a ponta. Depois da instalação, use
+`/reload` ou abra uma nova sessão e confira os MCPs com `/mcp-config`.
+O instalador não altera `config.toml`, modelos, provedores, credenciais nem arquivos de
+outros clientes, e não instala o ccusage automaticamente.
 
 ### Cline na extensão
 
@@ -333,11 +360,11 @@ adicional do Codex e não integra o conjunto de addons deste repositório.
 ### Graphify e o pre-flight do grafo
 
 O Graphify (`graphifyy`, via `uv`) monta um grafo do código do repositório em
-`graphify-out/graph.json`, por AST local, sem LLM e sem tokens. Cada instalador de provedor
-copia a skill oficial do Graphify para o cliente (gerada com `graphify install --platform`
-em HOME temporário, porque no Claude ela editaria o `CLAUDE.md` fora dos blocos
-gerenciados) e grava uma regra de uso. No OpenCode entra também o plugin `graphify.js`,
-que lembra o agente de consultar o grafo. Cline e Copilot no VS Code recebem só a regra.
+`graphify-out/graph.json`, por AST local, sem LLM e sem tokens. Nos clientes com skills,
+o instalador copia a skill oficial (gerada com `graphify install --platform` em HOME
+temporário, porque o setup também editaria instruções fora dos blocos gerenciados) e grava
+uma regra de uso. No OpenCode entra também o plugin `graphify.js`, que lembra o agente de
+consultar o grafo. Cline e Copilot no VS Code recebem só a regra.
 
 A regra manda o agente rodar `graphify-preflight ensure` (instalado em `~/.local/bin`)
 antes de varrer um repositório Git. O pre-flight resolve, sem chamar o modelo, se o grafo
@@ -364,17 +391,17 @@ incluí-los, use `/graphify` no agente, que usa o modelo do próprio cliente.
 
 ### Projeto do Serena
 
-Claude, Codex, Copilot CLI, OpenCode e Antigravity usam `--project-from-cwd`. Inicie esses clientes
-na pasta do projeto. Ao criar `.serena/project.yml`, o Serena liga só a linguagem principal; em
-projetos com mais de uma (ex.: Go e TypeScript), inclua as demais em `language_servers` e reabra o
-cliente, porque o arquivo só é lido quando o MCP inicia. Para Cline e VS Code, o padrão deixa a ativação para a sessão:
-peça ao Serena para ativar o caminho absoluto do projeto atual.
+Claude, Codex, Kimi, Copilot CLI, OpenCode e Antigravity usam `--project-from-cwd`. Inicie esses
+clientes na pasta do projeto. Ao criar `.serena/project.yml`, o Serena liga só a linguagem principal;
+em projetos com mais de uma (ex.: Go e TypeScript), inclua as demais em `language_servers` e reabra
+o cliente, porque o arquivo só é lido quando o MCP inicia. Para Cline e VS Code, o padrão deixa a
+ativação para a sessão: peça ao Serena para ativar o caminho absoluto do projeto atual.
 
-`--project-dir` (ou `options.project-dir`) fixa um projeto para **Cline/OpenCode/VS Code/Antigravity**, na configuração global.
+`--project-dir` (ou `options.project-dir`) fixa um projeto para **Kimi/Cline/OpenCode/VS Code/Antigravity**, na configuração global.
 Use apenas quando isso for intencional; não alterna automaticamente ao mudar de
 workspace. Alterar o projeto em uma reexecução atualiza a entrada que este pacote
-registrou (seção 4.3). Essa opção não muda o diretório de instalação, nem
-configura o projeto do Engram ou dos três clientes CLI.
+registrou (seção 4.3). Essa opção não muda o diretório de instalação nem configura o
+projeto do Engram.
 
 ## 4. Ordem de execução
 
@@ -407,6 +434,7 @@ aplicativos e suas contas precisam estar configurados para usar as integrações
 ```bash
 bash install-claude-ubuntu.sh &&
 bash install-codex-ubuntu.sh &&
+bash install-kimi-ubuntu.sh &&
 bash install-cline-ubuntu.sh &&
 bash install-opencode-ubuntu.sh &&
 bash install-copilot-ubuntu.sh &&
@@ -432,7 +460,7 @@ dados do Claude Code e não altera configurações dos clientes.
 
 `install-all-ubuntu.sh` executa, nesta ordem e um por vez: o bootstrap
 (`install-dependencies-ubuntu.sh`) e os instaladores dos provedores de `clients`, na ordem
-Claude, Codex, Cline, OpenCode, Copilot e Antigravity. `copilot` e `vscode` viram um único
+Claude, Codex, Kimi, Cline, OpenCode, Copilot e Antigravity. `copilot` e `vscode` viram um único
 `install-copilot-ubuntu.sh --surfaces`. Todos recebem o mesmo arquivo em `--config`:
 `addons.json`, ao lado do script, ou outro:
 
@@ -496,9 +524,9 @@ fazendo backup. Esse arquivo é lido pelos hooks oficiais no início de cada ses
 `/ponytail lite|full|ultra` (no Copilot CLI, `/ponytail:ponytail`) troca o nível durante a
 sessão. No OpenCode, o plugin injeta as regras a cada turno no nível ativo e também
 oferece `/ponytail`. `PONYTAIL_DEFAULT_MODE` no ambiente tem prioridade sobre o arquivo;
-o instalador avisa quando ela tem outro valor. Nos clientes só com regras (Cline, VS Code,
-Antigravity, e OpenCode/Copilot CLI sem o comando do cliente), o nível é incorporado ao
-bloco gerenciado; para mudá-lo, ajuste `mode` e reexecute.
+o instalador avisa quando ela tem outro valor. Nos clientes só com regras (Kimi, Cline,
+VS Code, Antigravity, e OpenCode/Copilot CLI sem o comando do cliente), o nível é
+incorporado ao bloco gerenciado; para mudá-lo, ajuste `mode` e reexecute.
 
 ### 4.3 Opções de cada addon
 
@@ -564,11 +592,12 @@ sempre configuram todos os addons. Não há mais instalação de um addon isolad
 |---|---|
 | `bash install-<addon>-ubuntu.sh --clients claude`, um por addon | `bash install-claude-ubuntu.sh` |
 | `… --clients codex` | `bash install-codex-ubuntu.sh` |
+| `… --clients kimi` | `bash install-kimi-ubuntu.sh` |
 | `… --clients cline --cline-config F` | `bash install-cline-ubuntu.sh --cline-config F` |
 | `… --clients opencode --opencode-major N` | `bash install-opencode-ubuntu.sh --opencode-major N` |
 | `… --clients copilot,vscode --vscode-user-dir D` | `bash install-copilot-ubuntu.sh --surfaces cli,vscode --vscode-user-dir D` |
 | `… --clients antigravity` | `bash install-antigravity-ubuntu.sh` |
-| `--project-dir P` | o mesmo, nos instaladores de Cline, OpenCode, Copilot e Antigravity |
+| `--project-dir P` | o mesmo, nos instaladores de Kimi, Cline, OpenCode, Copilot e Antigravity |
 | opções por addon (`--tools`, `--mode`, `--with-go`, …) | chaves em `addons.<addon>` do `addons.json` (seção 4.3), passado com `--config` |
 | `install-ccusage-ubuntu.sh` | `install-claude-ubuntu.sh`, porque o ccusage lê os dados do Claude Code |
 | `addons.<addon>: false` ou `clients` por addon | recusados: todos os addons são instalados |
@@ -587,7 +616,7 @@ nativo (seção 1), o bloco de regras antigo correspondente é removido.
 - `lib/json-mcp.sh`: editor de MCP em JSON/JSONC.
 - `install-<provedor>-ubuntu.sh`: tudo o que é específico do provedor.
 
-Para um provedor novo (por exemplo, Kimi ou Gemini CLI):
+Para um provedor novo (por exemplo, Gemini CLI):
 1. Crie `install-<provedor>-ubuntu.sh` a partir de um dos existentes e carregue a `lib/`.
 2. Mantenha o fluxo da seção 4: conferir todos os MCPs antes de `tools_install` e nunca
    escrever em arquivos de outro provedor.
@@ -628,6 +657,8 @@ Para o Engram, os instaladores de provedor:
 - No VS Code (`install-copilot`, superfície `vscode`), desativam
   `github.copilot.chat.tools.memory.enabled` e `github.copilot.chat.copilotMemory.enabled`
   no `settings.json` de usuário escolhido.
+- No Kimi, executam `engram setup kimi` e conferem o protocolo nativo em `AGENTS.md`, sem
+  acrescentar o bloco genérico de instruções.
 - Em Cline, OpenCode, Copilot e Antigravity, adicionam instruções para usar exclusivamente
   o Engram e evitar Memory Banks ou notas de memória nos arquivos de instruções. No
   OpenCode, o plugin `engram.ts` cuida também da sessão e da recuperação após compactação.
@@ -647,8 +678,8 @@ Os scripts não apagam memórias existentes nem desinstalam ferramentas anterior
 A exclusividade depende de resolver esses conflitos e desativar a memória da conta.
 Históricos de conversa, logs e retomada de sessão dos clientes não são removidos.
 
-Ao terminar, cada instalador confere os ajustes de memória nativa do seu provedor: Claude
-e Codex após o setup oficial, e VS Code após editar `settings.json`.
+Ao terminar, cada instalador confere os ajustes de memória nativa do seu provedor: Claude,
+Codex e Kimi após o setup oficial, e VS Code após editar `settings.json`.
 Essa conferência local não valida as configurações da conta GitHub nem overrides
 de workspace ou perfil.
 
@@ -677,8 +708,9 @@ os clientes para carregar o binário atualizado.
 
 1. Revise a confiança dos MCPs e, no Codex, dos hooks em `/hooks`; abra uma nova sessão.
 2. Nos clientes configurados, confira os servidores `engram`, `serena` e `context7`.
-   Claude/Codex/OpenCode/Copilot CLI oferecem listagem de MCP; nos editores use o painel
-   MCP. No VS Code, confirme que as instruções de usuário estão sendo carregadas.
+   Claude/Codex/OpenCode/Copilot CLI oferecem listagem de MCP; no Kimi, use `/mcp-config`;
+   nos editores, use o painel MCP. No VS Code, confirme que as instruções de usuário estão
+   sendo carregadas.
    No Claude, o `install-claude` garante `env.MCP_TIMEOUT` de
    pelo menos `60000` milissegundos no `settings.json` de `CLAUDE_CONFIG_DIR`
    (padrão: `~/.claude`), para acomodar a partida a frio do Node/`uv`.
@@ -737,8 +769,8 @@ Copilot VS Code. Não instalamos outro addon para complementar essa cobertura.
   com validação de requisitos de Node pelo npm. Context7 instala `@upstash/context7-mcp@latest`
   em `~/.local` e registra `~/.local/bin/context7-mcp`; a versão só muda ao reexecutar o
   instalador. Ele migra automaticamente a entrada antiga com comando `npx` e argumentos
-  `-y --registry=https://registry.npmjs.org @upstash/context7-mcp`; nos quatro clientes
-  novos, o comando antigo precisa corresponder ao caminho absoluto de `npx` no PATH.
+  `-y --registry=https://registry.npmjs.org @upstash/context7-mcp`; nos clientes com MCP
+  em JSON, o comando antigo precisa corresponder ao caminho absoluto de `npx` no PATH.
   Uma entrada diferente continua recusada como conflito. Plugins nativos usam os
   marketplaces oficiais.
 - As regras Ponytail dos clientes sem plugin são um snapshot incorporado de `AGENTS.md`, commit
@@ -828,9 +860,9 @@ anterior termina com sucesso.
 
 ## 9. Validação e limites conhecidos
 
-Em **26/10/2026**, os seis instaladores de provedor, o bootstrap, o orquestrador, a `lib/`, o
+Em **26/10/2026**, os sete instaladores de provedor, o bootstrap, o orquestrador, a `lib/`, o
 `graphify-preflight` e o adaptador OpenCode Desktop passaram pela verificação de sintaxe Bash e pelo ShellCheck.
-Os **109 testes** em `tests/` passaram. O CI do GitLab mantém essas verificações
+Os **115 testes** em `tests/` passaram. O CI do GitLab mantém essas verificações
 ([.gitlab-ci.yml](.gitlab-ci.yml)). A suíte cobre:
 - a `lib/`: leitura e validação do `addons.json`, opções dos addons, textos das regras,
   blocos gerenciados e sua remoção, e o preâmbulo com bloqueio, backup e log;
@@ -851,12 +883,23 @@ Os **109 testes** em `tests/` passaram. O CI do GitLab mantém essas verificaç�
 O adaptador OpenCode Desktop é testado nas duas VMs, incluindo fallback, argumentos,
 ccusage e recusa de comandos inválidos.
 
-Na mesma data, o `install-all` antigo e o novo foram executados de verdade, com rede, em
-dois containers Ubuntu 24.04 descartáveis com todos os clientes. As configurações
-resultantes foram equivalentes, com diferenças só em timestamps e nas integrações nativas
-da seção 1, e uma segunda execução do novo não alterou nada. Não foram verificados o uso
-dos plugins dentro dos agentes (exige login em cada provedor) nem o plugin Ponytail do
-Antigravity (`agy` indisponível).
+Na mesma data, antes da inclusão do Kimi, o `install-all` antigo e o novo foram executados
+de verdade, com rede, em dois containers Ubuntu 24.04 descartáveis com todos os clientes
+então suportados. As configurações resultantes foram equivalentes, com diferenças só em
+timestamps e nas integrações nativas da seção 1, e uma segunda execução do novo não alterou
+nada. O fluxo completo do Kimi foi validado com CLIs e ferramentas simulados; o helper da
+skill também foi exercitado com o Graphify 0.9.96 real. Esse ensaio não incluiu instalação
+npm real nem autenticação.
+
+Separadamente, uma instalação real no Ubuntu foi validada com Kimi Code 2.3.3, Context7
+4.4.4, Engram 3.6.0, Serena 2.1.0, Graphify 0.9.96 e RTK 1.1.0. Os três MCPs concluíram
+handshake e chamadas reais de leitura. Numa sessão não interativa autenticada, o próprio
+Kimi chamou Context7 `resolve-library-id`, Engram `mem_search` e Serena
+`get_symbols_overview`; o Context7 também respondeu `query-docs` no teste direto. Graphify
+passou por geração/verificação do grafo e consulta por símbolo, e RTK executou `git status`,
+em repositório descartável. O Engram não foi testado para persistência, apenas leitura.
+Também não foram verificados o uso dos plugins dentro dos demais agentes nem o plugin
+Ponytail do Antigravity (`agy` indisponível).
 
 Para conferir localmente a sintaxe dos instaladores, da `lib/` e do adaptador sem instalar nada:
 
@@ -893,6 +936,7 @@ Referências para os formatos e limites de integração usados pelos scripts:
 - [Ponytail — instalação e portabilidade](https://github.com/DietrichGebert/ponytail/blob/main/INSTALL.md).
 - Opções da seção 4.3: [Ponytail `ponytail-config.js`](https://github.com/DietrichGebert/ponytail/blob/main/hooks/ponytail-config.js), [Engram `engram mcp`](https://github.com/Gentleman-Programming/engram/blob/main/cmd/engram/main.go), [Serena `start-mcp-server`](https://github.com/oraios/serena/blob/main/src/serena/cli.py), [Context7 MCP](https://github.com/upstash/context7/blob/master/packages/mcp/src/index.ts), [RTK `config.toml`](https://github.com/rtk-ai/rtk/blob/develop/src/core/config.rs) e [ccusage `ccusage.json`](https://github.com/ccusage/ccusage/blob/main/docs/guide/config-files.md).
 - [Cline MCP](https://docs.cline.bot/mcp/mcp-overview), [Cline regras](https://docs.cline.bot/customization/cline-rules).
+- [Kimi Code — repositório](https://github.com/MoonshotAI/kimi-code), [arquivos de configuração](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/config-files.html) e [migração do CLI legado](https://github.com/MoonshotAI/kimi-cli).
 - [OpenCode V1 MCP](https://opencode.ai/docs/mcp-servers/), [V2 MCP](https://dev.opencode.ai/v2/docs/mcp-servers/), [V2 instruções](https://dev.opencode.ai/v2/docs/instructions/).
 - [Copilot CLI — diretórios e precedência](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference).
 - [VS Code MCP](https://code.visualstudio.com/docs/copilot/customization/mcp-servers), [instruções](https://code.visualstudio.com/docs/agent-customization/custom-instructions), [flags no código oficial](https://github.com/microsoft/vscode-copilot-chat/blob/main/package.json).

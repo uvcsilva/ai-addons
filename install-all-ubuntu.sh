@@ -17,7 +17,7 @@ Uso: bash $SCRIPT_NAME [--config ARQUIVO] [--dry-run]
 
 Le um arquivo JSON e executa, nesta ordem e um por vez:
   install-dependencies-ubuntu.sh (bootstrap) e um instalador por provedor de clients:
-  claude, codex, cline, opencode, copilot (copilot e vscode) e antigravity.
+  claude, codex, kimi, cline, opencode, copilot (copilot e vscode) e antigravity.
 Cada instalador de provedor instala as ferramentas e configura todos os addons.
 
   --config ARQUIVO  JSON com os parametros. Padrao: addons.json ao lado deste script.
@@ -83,7 +83,7 @@ if [[ "$(config_opt bootstrap enabled true)" == true ]]; then
   add_step bootstrap install-dependencies-ubuntu.sh ${bootstrap_args[@]+"${bootstrap_args[@]}"}
 fi
 CLIENTS=",$(config_clients),"
-for provider in claude codex cline opencode; do
+for provider in claude codex kimi cline opencode; do
   [[ "$CLIENTS" != *",$provider,"* ]] || add_step "$provider" "install-$provider-ubuntu.sh" --config "$CONFIG_FILE"
 done
 # copilot (CLI) e vscode (Copilot no VS Code) sao superficies do mesmo instalador.

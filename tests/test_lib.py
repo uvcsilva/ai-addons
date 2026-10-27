@@ -43,7 +43,7 @@ class LibTest(unittest.TestCase):
             with self.subTest(config=name):
                 result = self.run_lib(f"config_load {shlex.quote(str(ROOT / name))}\nconfig_clients",
                                       "config.sh")
-                self.assertEqual(result.stdout, "claude,codex,cline,opencode,copilot,vscode,antigravity")
+                self.assertEqual(result.stdout, "claude,codex,kimi,cline,opencode,copilot,vscode,antigravity")
 
     def test_values_are_normalized(self):
         result = self.load({
@@ -73,7 +73,7 @@ class LibTest(unittest.TestCase):
 
     def test_all_and_bom_are_accepted(self):
         result = self.load("﻿" + json.dumps({"clients": "all"}), "config_clients")
-        self.assertEqual(result.stdout, "claude,codex,cline,opencode,copilot,vscode,antigravity")
+        self.assertEqual(result.stdout, "claude,codex,kimi,cline,opencode,copilot,vscode,antigravity")
 
     def test_invalid_configs_are_refused(self):
         cases = {

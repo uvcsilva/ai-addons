@@ -1,5 +1,5 @@
 # shellcheck shell=bash disable=SC2154
-# Editor dos arquivos MCP em JSON/JSONC (Cline, OpenCode, Copilot CLI, VS Code, Antigravity).
+# Editor dos arquivos MCP em JSON/JSONC (Cline, Kimi, OpenCode, Copilot CLI, VS Code, Antigravity).
 # Requer lib/common.sh e OPENCODE_MAJOR, definido pelo instalador (vazio fora do OpenCode).
 
 edit_client_json() {
@@ -63,14 +63,14 @@ def build(command, argv):
     if kind=='cline': entry.update(disabled=False,autoApprove=[])
     elif kind=='copilot': entry.update(type='local',tools=['*'])
     elif kind=='vscode': entry.update(type='stdio')
-    elif kind=='antigravity': pass
+    elif kind in ('antigravity','kimi'): pass
     else: raise ValueError('Cliente desconhecido')
     return entry
 if kind=='memory':
     changes=[((key,),False,True,None) for key in ('github.copilot.chat.tools.memory.enabled','github.copilot.chat.copilotMemory.enabled')]
 else:
     paths={'cline':('mcpServers',name),'copilot':('mcpServers',name),'vscode':('servers',name),
-           'antigravity':('mcpServers',name),
+           'antigravity':('mcpServers',name),'kimi':('mcpServers',name),
            'opencode':('mcp','servers',name) if major=='2' else ('mcp',name)}
     if kind not in paths: raise ValueError('Cliente desconhecido')
     legacy=json.loads(os.environ.get('LEGACY_MCP_ARGV') or '[]')
