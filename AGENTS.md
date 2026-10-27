@@ -49,7 +49,7 @@ plugin ou hook já faz.
 
 ## Comandos
 
-Execute na raiz. São os mesmos da CI (`.gitlab-ci.yml`):
+Execute na raiz. São os mesmos das CIs (`.gitlab-ci.yml` e `.github/workflows/ci.yml`):
 
 ```bash
 for f in install-*-ubuntu.sh opencode-desktop/ai-tooling-vm lib/*.sh bin/*; do bash -n "$f"; done
